@@ -70,7 +70,7 @@
     const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const data=JSON.stringify({exam,assets,mode}).replace(/</g,'\\u003c');
     const script=s=>s.replace(/<\/script/gi,'<\\/script');
-    return '<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(exam.title)+'</title><style>'+css+'</style><body><div id="app"></div><div id="toast" role="status"></div><dialog id="modal"></dialog><input id="folderInput" type="file" hidden><script id="embedded-data" type="application/json">'+data+'</script><script>'+script(core)+'</script><script>'+script(app)+'</script></body></html>';
+    return '<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(exam.title)+'</title><style>'+css+'</style><body><div id="app"></div><div id="toast" role="status"></div><div id="comboOverlay" class="combo-overlay" aria-live="polite"></div><dialog id="modal"></dialog><input id="folderInput" type="file" hidden><script id="embedded-data" type="application/json">'+data+'</script><script>'+script(core)+'</script><script>'+script(app)+'</script></body></html>';
   }
   return {norm,relative,year,subject,letters,commentChoice,recoverAnswer,normalizeManifest,grade,summarize,selection,identity,groups,portableDocument};
 });
