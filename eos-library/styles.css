@@ -180,3 +180,31 @@ html[data-theme="dark"] .streak-pill.streak-idle{background:#1a221d;border-color
 html[data-theme="dark"] .streak-pill.streak-active{background:#332612;border-color:#74511a;color:#f6ad55}
 html[data-theme="dark"] .streak-inline{color:#f6ad55}
 html[data-theme="dark"] .streak-result{color:#f6ad55}
+
+.profile-btn{display:inline-flex;align-items:center;gap:8px;padding:4px 10px 4px 4px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--ink);cursor:pointer;font:inherit;transition:border-color .15s,background .15s}
+.profile-btn:hover{border-color:var(--accent);background:var(--accent-soft)}
+.badge.cloud-ok{background:rgba(16,185,129,.12);color:#059669;border:1px solid rgba(16,185,129,.28)}
+[data-theme="dark"] .badge.cloud-ok{background:rgba(52,211,153,.14);color:#34d399;border-color:rgba(52,211,153,.3)}
+.nick-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip-nick{padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface-2,var(--surface));color:var(--ink);font-size:12px;cursor:pointer;transition:all .15s}
+.chip-nick:hover{border-color:var(--accent);color:var(--accent)}
+.leaderboard-section{margin-bottom:24px}
+tr.is-me{background:rgba(16,185,129,.06)}
+[data-theme="dark"] tr.is-me{background:rgba(52,211,153,.08)}
+
+.mini-lb{margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
+.mini-lb h3{font-size:13px;font-weight:700}
+.mini-lb-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.mini-lb-row{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;font-size:12px;background:var(--surface-2,rgba(0,0,0,.03))}
+[data-theme="dark"] .mini-lb-row{background:rgba(255,255,255,.04)}
+.mini-lb-row.is-me{background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.28)}
+[data-theme="dark"] .mini-lb-row.is-me{background:rgba(52,211,153,.14);border:1px solid rgba(52,211,153,.3)}
+.mini-lb-rank{text-align:center;font-weight:700}
+.mini-lb-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.mini-lb-time{font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent)}
+
+.nick-status{min-height:18px;margin-top:6px;line-height:1.4}
+.nick-status.ok{color:#059669;font-weight:600}
+[data-theme="dark"] .nick-status.ok{color:#34d399}
+.nick-status.warn{color:#d97706;font-weight:600}
+[data-theme="dark"] .nick-status.warn{color:#fbbf24}
