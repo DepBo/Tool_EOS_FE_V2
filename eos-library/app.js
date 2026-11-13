@@ -252,11 +252,29 @@
   function closeModal(){modal.close();}
   function bind(id,fn){const el=$(id);if(el)el.onclick=fn;}
   function requestPromise(r){return new Promise((resolve,reject)=>{r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
-  async function get(store,key){return requestPromise(db.transaction(store).objectStore(store).get(key));}
-  async function all(store){return requestPromise(db.transaction(store).objectStore(store).getAll());}
-  function transaction(stores,fn){return new Promise((resolve,reject)=>{const tx=db.transaction(stores,'readwrite');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('Không lưu được dữ liệu'));try{fn(tx);}catch(e){tx.abort();reject(e);}});}
+  async function openDB(){
+    const database=await new Promise((resolve,reject)=>{const r=indexedDB.open('studyroom-library',1);r.onupgradeneeded=()=>{for(const name of ['exams','assets','history','settings','handles','sessions'])r.result.createObjectStore(name,{keyPath:'id'});};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+    database.onclose=()=>{if(db===database)db=null;};
+    database.onversionchange=()=>{database.close();if(db===database)db=null;};
+    db=database;
+    return database;
+  }
+  async function ensureDB(){return db||openDB();}
+  async function withDB(fn){
+    let database=await ensureDB();
+    try{return await fn(database);}
+    catch(e){
+      if(e?.name==='InvalidStateError'||String(e?.message||'').includes('closing')){
+        db=null;database=await openDB();return await fn(database);
+      }
+      throw e;
+    }
+  }
+  async function get(store,key){return withDB(database=>requestPromise(database.transaction(store).objectStore(store).get(key)));}
+  async function all(store){return withDB(database=>requestPromise(database.transaction(store).objectStore(store).getAll()));}
+  async function transaction(stores,fn){return withDB(database=>new Promise((resolve,reject)=>{const tx=database.transaction(stores,'readwrite');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('Không lưu được dữ liệu'));try{fn(tx);}catch(e){tx.abort();reject(e);}}));}
   async function put(store,value){await transaction([store],tx=>tx.objectStore(store).put(value));}
-  async function initStorage(){db=await new Promise((resolve,reject)=>{const r=indexedDB.open('studyroom-library',1);r.onupgradeneeded=()=>{for(const name of ['exams','assets','history','settings','handles','sessions'])r.result.createObjectStore(name,{keyPath:'id'});};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});exams=await all('exams');
+  async function initStorage(){await openDB();exams=await all('exams');
     for(const exam of exams){let changed=false;for(const q of exam.questions){if(q.answer)continue;const result=C.recoverAnswer(q);if(result.answer){q.answer=result.answer;q.answerMethod=result.method;q.community.status='community_plurality';if(q.answer.length>1)q.type='multi';for(const a of q.answer)if(!q.options.includes(a))q.options.push(a);changed=true;}}if(changed){exam.unknown=exam.questions.filter(q=>!q.answer).length;await put('exams',exam);}}
     history=await all('history');sessions=await all('sessions');const saved=await get('settings','preferences');if(saved){settings={...settings,...saved};if(saved.theme)applyTheme(saved.theme);}if(!settings.name){try{const savedNick=localStorage.getItem('studyroom-nickname');if(savedNick)settings.name=savedNick;}catch{}}rememberedRoot=(await get('handles','root'))?.handle||null;await syncCloudHistory();}
   function elapsed(){if(!session)return 0;return session.elapsedBase+(session.running?Math.floor((Date.now()-session.resumedAt)/1000):0);}
