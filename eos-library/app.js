@@ -312,30 +312,29 @@
     }
     if(grantedAny){urls.clear();if(session)renderSession();else if(view==='library')renderLibrary();}
   }
-  async function getImageBlob(exam,path){
+  async function getImageBlob(exam,path,q=null){
     if(!path)return null;
-    if(exam?.isRandom&&exam.sourceMap?.[path]){
-      const ref=exam.sourceMap[path];
-      const src=exams.find(x=>x.id===ref.examId);
-      if(src)return getImageBlob(src,ref.path);
-    }
-    if(exam?.storageMode==='fs'&&exam.rootId){
-      const entry=rootHandles.get(exam.rootId);
+    const srcId=q?.sourceExamId||exam?.id;
+    const mode=q?.sourceExamId?q.sourceStorageMode:exam?.storageMode;
+    const rootId=q?.sourceExamId?q.sourceRootId:exam?.rootId;
+    const relFolder=q?.sourceExamId?(q.sourceRelFolder||''):(exam?.relFolder||'');
+    if(mode==='fs'&&rootId){
+      const entry=rootHandles.get(rootId);
       if(entry?.handle){
         try{
           if(await entry.handle.queryPermission({mode:'read'})==='granted'){
-            return await readFileFromRoot(entry.handle,exam.relFolder||'',path);
+            return await readFileFromRoot(entry.handle,relFolder,path);
           }
         }catch{}
       }
     }
-    const stored=await get('assets',exam.id+':'+path);
+    const stored=await get('assets',srcId+':'+path);
     return stored?.blob||null;
   }
-  async function imageURL(exam,path){if(!path)return '';const key=exam.id+':'+path;if(urls.has(key))return urls.get(key);if(embedded){const data=embedded.assets[path];if(data){urls.set(key,data);return data;}return '';}
-    const blob=await getImageBlob(exam,path);if(!blob)return '';const url=URL.createObjectURL(blob);urls.set(key,url);return url;
+  async function imageURL(exam,path,q=null){if(!path)return '';const key=(q?.sourceExamId||exam.id)+':'+path;if(urls.has(key))return urls.get(key);if(embedded){const data=embedded.assets[path];if(data){urls.set(key,data);return data;}return '';}
+    const blob=await getImageBlob(exam,path,q);if(!blob)return '';const url=URL.createObjectURL(blob);urls.set(key,url);return url;
   }
-  async function mountImage(img,exam,path,token=renderToken,onReady=null){try{const url=await imageURL(exam,path);if(token!==renderToken||!img.isConnected)return;if(url){const done=()=>{if(token===renderToken)onReady?.();};img.onload=done;img.onerror=()=>{img.alt='Không đọc được ảnh. Hãy nhập lại thư mục đề.';done();};img.src=url;if(img.complete)done();}else{img.alt='Thiếu file ảnh — hãy nhập lại thư mục đề';if(token===renderToken)onReady?.();}}catch{img.alt='Không đọc được ảnh';if(token===renderToken)onReady?.();}}
+  async function mountImage(img,exam,path,token=renderToken,onReady=null,q=null){try{const url=await imageURL(exam,path,q);if(token!==renderToken||!img.isConnected)return;if(url){const done=()=>{if(token===renderToken)onReady?.();};img.onload=done;img.onerror=()=>{img.alt='Không đọc được ảnh. Hãy nhập lại thư mục đề.';done();};img.src=url;if(img.complete)done();}else{img.alt='Thiếu file ảnh — hãy nhập lại thư mục đề';if(token===renderToken)onReady?.();}}catch{img.alt='Không đọc được ảnh';if(token===renderToken)onReady?.();}}
   function clearExamURLs(id){for(const [key,url] of urls)if(key.startsWith(id+':')){if(url.startsWith('blob:'))URL.revokeObjectURL(url);urls.delete(key);}}
   function nickname(){return settings.name||'Người học';}
   function isStartedSession(s){return Boolean(s&&!s.submitted&&(Object.keys(s.answers||{}).length>0||Object.keys(s.checked||{}).length>0));}
@@ -352,9 +351,68 @@
   function shell(content){const isDark=settings.theme==='dark';const cloudBadge=cloudSyncStatus==='synced'?'<span class="badge cloud-ok" title="Đã kết nối Supabase Cloud">● Cloud DB</span>':cloudSyncStatus==='syncing'?'<span class="badge">↻ Đang đồng bộ</span>':'<span class="badge" title="Chưa đồng bộ được Cloud">● Offline</span>';return `<div class="shell"><aside class="sidebar"><div class="brand"><span class="brand-mark">${icon('book')}</span>studyroom<span class="small muted">.</span></div><nav><button class="nav-btn ${view==='library'?'active':''}" id="navLibrary">${icon('grid')}Thư viện đề thi</button><button class="nav-btn ${view==='studied'?'active':''}" id="navStudied">${icon('history')}Lịch sử đã học</button><button class="nav-btn ${view==='history'?'active':''}" id="navHistory">${icon('chart')}Kết quả & xếp hạng</button><button class="nav-btn" id="navSettings">${icon('settings')}Cài đặt</button></nav><div class="sidebar-footer"><strong>Không gian học của bạn</strong><br>Đề thi lưu cục bộ, điểm & BXH đồng bộ Cloud.<br><span class="muted">Studyroom · v1.2</span></div></aside><main class="main"><header class="topbar"><span class="crumb">Thư viện${subject?' / '+esc(subject):view==='studied'?' / Lịch sử đã học':view==='history'?' / Kết quả & xếp hạng':''}</span><div class="profile"><button id="toggleTheme" class="ghost sound-btn" type="button" title="${isDark?'Chuyển giao diện sáng':'Chuyển giao diện tối'}" aria-label="Đổi giao diện sáng tối">${icon(isDark?'sun':'moon')}<span>${isDark?'Sáng':'Tối'}</span></button>${cloudBadge}<button id="profileBtn" class="profile-btn" type="button" title="Đổi Nickname"><span class="avatar">${esc(nickname()[0].toUpperCase())}</span><span class="name">${esc(nickname())}</span></button></div></header><div class="content">${content}</div></main></div>`;}
   function bindShell(){bind('toggleTheme',toggleTheme);bind('profileBtn',()=>promptNickname(false));bind('navLibrary',()=>{view='library';subject=null;search='';libraryStatus='all';renderLibrary();});bind('navStudied',()=>{view='studied';subject=null;studiedFilter={status:'studied',subject:'',search:''};renderStudied();});bind('navHistory',()=>{view='history';subject=null;renderHistory();});bind('navSettings',showSettings);bind('addExams',showImport);bind('rescan',scanAgain);}
   function statsHtml(list){const count=list.reduce((n,e)=>n+e.questions.length,0),studiedCount=list.filter(e=>examStudyInfo(e).status!=='new').length;return `<div class="stats"><div class="stat"><span class="stat-icon">${icon('book')}</span><div><strong>${list.length}</strong><small>Bộ đề trong thư viện</small></div></div><div class="stat"><span class="stat-icon">${icon('grid')}</span><div><strong>${count.toLocaleString('vi-VN')}</strong><small>Câu hỏi sẵn sàng</small></div></div><button class="stat stat-clickable" id="openStudiedStat" type="button"><span class="stat-icon">${icon('history')}</span><div><strong>${studiedCount} / ${list.length}</strong><small>${subject?'Đề đã học trong môn':'Bộ đề đã từng học'}</small></div></button></div>`;}
+  async function createRandomExam(sub){
+    if(!sub)return;
+    const subjectExams=exams.filter(e=>e.subject===sub);
+    const sourceExams=subjectExams.filter(e=>!e.isRandom);
+    const bankExams=sourceExams.length?sourceExams:subjectExams;
+    const pool=[];
+    for(const srcExam of bankExams)for(const q of srcExam.questions||[])pool.push({srcExam,q});
+    if(!pool.length){notify('Môn '+sub+' chưa có câu hỏi nào.');return;}
+    const picked=[];
+    if(pool.length>=60){
+      const copy=[...pool];
+      for(let i=copy.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[copy[i],copy[j]]=[copy[j],copy[i]];}
+      picked.push(...copy.slice(0,60));
+    }else{
+      for(let i=0;i<60;i++)picked.push(pool[Math.floor(Math.random()*pool.length)]);
+    }
+    const usedNums=new Set();
+    const usedIds=new Set(exams.map(e=>e.id));
+    const reTitle=new RegExp('^'+sub.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\s*-\\s*(\\d+)$','i');
+    for(const e of subjectExams){
+      if(e.randomNumber)usedNums.add(Number(e.randomNumber));
+      const m=String(e.title||'').trim().match(reTitle);
+      if(m)usedNums.add(Number(m[1]));
+    }
+    let nextId=1;
+    while(usedNums.has(nextId)||usedIds.has('random:'+sub+':'+nextId))nextId++;
+    const title=sub+' - '+nextId;
+    const questions=picked.map(({srcExam,q},idx)=>({
+      ...q,
+      index:idx+1,
+      id:idx+1,
+      label:'Q'+(idx+1)+' ('+(q.label||'Q'+q.index)+')',
+      sourceExamId:srcExam.id,
+      sourceStorageMode:srcExam.storageMode||'idb',
+      sourceRootId:srcExam.rootId||null,
+      sourceRelFolder:srcExam.relFolder||'',
+    }));
+    const newExam={
+      id:'random:'+sub+':'+nextId,
+      title,
+      subject:sub,
+      year:new Date().getFullYear(),
+      source:'random://'+sub+'/'+nextId+'/'+Date.now(),
+      isRandom:true,
+      randomNumber:nextId,
+      fingerprint:'random-'+sub+'-'+nextId+'-'+Date.now(),
+      assetKeys:[],
+      unknown:questions.filter(q=>!q.answer).length,
+      missing:0,
+      importedAt:Date.now(),
+      questions
+    };
+    await put('exams',newExam);
+    exams.push(newExam);
+    renderLibrary();
+    notify('Đã tạo đề ngẫu nhiên '+title+' (60 câu từ '+pool.length+' câu)');
+    showExam(newExam.id);
+  }
   function renderLibrary(){renderToken++;const token=renderToken;view='library';
     const list=subject?exams.filter(e=>e.subject===subject):exams;
-    const heading=`<div class="page-heading"><div>${subject?'<button class="back" id="backSubjects">'+icon('back')+'Tất cả môn học</button>':'<span class="eyebrow">YOUR LEARNING SPACE</span>'}<h1>${subject?esc(subject):'Hôm nay, học gì nào?'}</h1><p>${subject?'Các bộ đề được sắp xếp theo năm. Chọn đề và bắt đầu theo cách của bạn.':'Tất cả môn học và bộ đề của bạn, trong một không gian gọn gàng.'}</p></div><div class="row">${subject?'<button class="btn-icon" id="createRandomExam">🎲 Tạo đề ngẫu nhiên</button>':''}<button class="primary btn-icon" id="addExams">${icon('plus')}Thêm đề</button></div></div>`;
+    const randomBtn=subject?'<button class="btn-icon" id="createRandomExam">🎲 Tạo đề ngẫu nhiên</button>':'';
+    const heading=`<div class="page-heading"><div>${subject?'<button class="back" id="backSubjects">'+icon('back')+'Tất cả môn học</button>':'<span class="eyebrow">YOUR LEARNING SPACE</span>'}<h1>${subject?esc(subject):'Hôm nay, học gì nào?'}</h1><p>${subject?'Các bộ đề được sắp xếp theo năm. Chọn đề và bắt đầu theo cách của bạn.':'Tất cả môn học và bộ đề của bạn, trong một không gian gọn gàng.'}</p></div><div class="row">${randomBtn}<button class="primary btn-icon" id="addExams">${icon('plus')}Thêm đề</button></div></div>`;
     const hero=subject?'':`<div class="hero"><div><span class="eyebrow">MỖI NGÀY MỘT CHÚT TIẾN BỘ</span><h2>Ôn chắc từng câu.<br>Tự tin bước vào phòng thi.</h2><p>Chọn luyện tập để hiểu từng đáp án, hoặc thử sức với một bài thi EOS hoàn chỉnh.</p></div><div class="hero-art"><div class="paper"><div class="paper-check">✓</div><div class="paper-line"></div><div class="paper-line" style="width:75%"></div><div class="paper-line" style="width:90%"></div></div></div></div>`;
     const filtered=list.filter(e=>(!search||(e.title+' '+e.subject+' '+e.year).toLocaleLowerCase().includes(search.toLocaleLowerCase()))&&(!subject||libraryStatus==='all'||examStudyInfo(e).status===libraryStatus));
     let body='';
@@ -374,7 +432,7 @@
     $('search').oninput=e=>{const pos=e.target.selectionStart;search=e.target.value;renderLibrary();$('search').focus();$('search').setSelectionRange(pos,pos);};
     app.querySelectorAll('[data-subject]').forEach(b=>b.onclick=()=>{subject=b.dataset.subject;search='';libraryStatus='all';renderLibrary();});
     app.querySelectorAll('[data-exam]').forEach(b=>b.onclick=()=>showExam(b.dataset.exam));
-    app.querySelectorAll('img[data-preview]').forEach(img=>{const exam=exams.find(e=>e.id===img.dataset.preview);mountImage(img,exam,exam.questions[0].image,token);});
+    app.querySelectorAll('img[data-preview]').forEach(img=>{const exam=exams.find(e=>e.id===img.dataset.preview);const firstQ=exam?.questions?.[0];if(firstQ)mountImage(img,exam,firstQ.image,token,null,firstQ);});
   }
   function examCard(e){const info=examStudyInfo(e),statusBadge=info.status==='done'?`<span class="badge done">✓ Đã học (${info.attempts.length} lượt)</span>`:info.status==='progress'?'<span class="badge progress">Đang làm dở</span>':'<span class="badge fresh">Chưa học</span>';const modeBadge=info.modes.length?`<span class="badge">${info.modes.map(modeLabel).join(' + ')}</span>`:'<span class="badge good">Luyện tập + EOS</span>';const summaryText=info.status==='done'?'Lần gần nhất: '+(info.last.score===null?'Chưa chấm':info.last.score+'/10')+' ('+modeLabel(info.last.mode)+')'+(info.last.createdAt?' · '+new Date(info.last.createdAt).toLocaleDateString('vi-VN'):'')+(info.active.length?' · Đang làm tiếp':''):info.status==='progress'?'Đang làm dở: '+info.active.map(s=>modeLabel(s.mode)+' '+Object.keys(s.answers||{}).length+'/'+e.questions.length+' câu').join(' · '):'Chưa có lượt học nào';const btnText=info.status==='progress'?'Tiếp tục học':info.status==='done'?'Xem / học lại':'Mở bộ đề';return `<article class="exam-card ${info.status==='done'?'studied':info.status==='progress'?'in-progress':''}"><div class="thumb"><img data-preview="${esc(e.id)}" alt="Xem trước ${esc(e.questions[0].label)}" loading="lazy"><span class="badge">${e.questions.length} câu</span></div><div class="exam-body"><div class="row">${statusBadge}${modeBadge}${e.unknown?'<span class="badge warning">'+e.unknown+' câu chưa rõ</span>':''}</div><h3>${esc(e.title)}</h3><p>${e.missing?'Thiếu '+e.missing+' ảnh · ':''}${summaryText}</p><div class="exam-actions"><button class="primary" data-exam="${esc(e.id)}">${btnText} ${icon('arrow')}</button></div></div></article>`;}
   function showImport(){if(importing)return;openModal(`<span class="eyebrow">THÊM VÀO THƯ VIỆN</span><h2>Đưa bộ đề của bạn vào đây.</h2><p>Chọn một đề hoặc thư mục cha chứa nhiều đề / nhiều môn (hỗ trợ thêm nhiều thư mục từ bất kỳ ổ nào). Trang tự tìm manifest, bỏ qua đề trùng và cập nhật đề đã thay đổi.</p><div class="file-note">Cần giữ nguyên thư mục ảnh và <strong>manifest.json</strong>. Khi chọn bằng nút chính, ảnh sẽ được đọc trực tiếp từ máy (Zero-Copy) giúp bộ nhớ trình duyệt siêu nhẹ và không bị xóa mất đề.</div><div class="stack" style="margin-top:24px"><button id="pickRoot" class="primary btn-icon">${icon('folder')}Chọn thư mục (Zero-Copy khuyên dùng)</button><button id="pickFallback" class="btn-icon">${icon('plus')}Chọn bằng hộp chọn cổ điển (copy ảnh)</button></div><p class="small" style="margin-top:15px">Chế độ Zero-Copy chỉ lưu thông tin nhẹ và đọc ảnh trực tiếp từ thư mục gốc trên máy bạn.</p><div class="modal-actions"><button id="closeImport">Đóng</button></div>`);bind('pickRoot',pickRoot);bind('pickFallback',()=>{$('folderInput').click();});bind('closeImport',closeModal);}
@@ -459,46 +517,6 @@
       const actions=document.createElement('div');actions.className='modal-actions';actions.innerHTML='<button class="primary" id="finishImport">Về thư viện</button>';modal.append(actions);const summary=document.createElement('p');summary.className='import-summary';summary.textContent=`${added} đề mới · ${updated} cập nhật · ${skipped} đã có · ${failed} lỗi`;actions.before(summary);bind('finishImport',()=>{closeModal();renderLibrary();});
     }catch(e){modal.innerHTML='<h2>Chưa nhập được thư mục</h2><p>'+esc(e.message)+'</p><div class="modal-actions"><button id="closeImportError">Đóng</button></div>';bind('closeImportError',closeModal);}finally{importing=false;}
   }
-  async function createRandomExam(sub){
-    if(!sub)return;
-    const baseExams=exams.filter(e=>e.subject===sub&&!e.isRandom);
-    const pool=[];
-    for(const src of baseExams)for(const q of src.questions||[])pool.push({src,q});
-    if(!pool.length){notify('Môn '+sub+' chưa có câu hỏi nào để tạo đề ngẫu nhiên.');return;}
-    for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
-    const picked=pool.slice(0,Math.min(60,pool.length));
-    const escRe=sub.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    const titleRe=new RegExp('^'+escRe+'\\s*-\\s*(\\d+)$','i');
-    const usedIds=new Set();
-    for(const e of exams){
-      if(e.subject!==sub)continue;
-      if(Number.isInteger(e.randomId))usedIds.add(e.randomId);
-      const m=String(e.title||'').trim().match(titleRe);
-      if(m)usedIds.add(Number(m[1]));
-    }
-    let nextId=1;while(usedIds.has(nextId))nextId++;
-    const title=`${sub} - ${nextId}`;
-    const sourceMap={},questions=[];
-    for(let i=0;i<picked.length;i++){
-      const {src,q}=picked[i],idx=i+1,imgKey=q.image?`r${idx}_img`:null,fullKey=q.full?`r${idx}_full`:null;
-      if(imgKey)sourceMap[imgKey]={examId:src.id,path:q.image};
-      if(fullKey)sourceMap[fullKey]={examId:src.id,path:q.full};
-      questions.push({...JSON.parse(JSON.stringify(q)),index:idx,id:idx,label:'Q'+idx,image:imgKey,full:fullKey});
-    }
-    const id=await digest('random|'+sub+'|'+nextId+'|'+crypto.randomUUID());
-    const fingerprint=await digest('random-fp|'+questions.map(q=>sourceMap[q.image]?.examId+':'+sourceMap[q.image]?.path).join('|'));
-    const newExam={
-      id,title,subject:sub,year:new Date().getFullYear(),source:`random:${sub}:${nextId}`,
-      isRandom:true,randomId:nextId,sourceMap,questions,
-      unknown:questions.filter(q=>!q.answer).length,missing:0,
-      storageMode:'random',assetKeys:[],fingerprint,importedAt:Date.now()
-    };
-    await put('exams',newExam);
-    exams.push(newExam);
-    renderLibrary();
-    notify(`Đã tạo đề ngẫu nhiên ${title} (${questions.length} câu)!`);
-    showExam(newExam.id);
-  }
   function showExam(id){const e=exams.find(e=>e.id===id);if(!e)return;openModal(`<span class="eyebrow">${esc(e.subject)} · ${e.year||'CHƯA RÕ NĂM'}</span><h2 style="font-size:21px;line-height:1.5">${esc(e.title)}</h2><p>${e.questions.length} câu có ảnh · ${e.unknown} câu chưa rõ đáp án${e.missing?' · '+e.missing+' ảnh còn thiếu':''}</p><div class="mode-cards"><button class="mode-card" id="practiceMode">${icon('play')}<strong>Luyện tập</strong><small>Kiểm tra từng câu. Đúng tự chuyển, sai xem giải thích và bình luận.</small></button><button class="mode-card" id="eosMode">${icon('clock')}<strong>Thi thử EOS</strong><small>Làm toàn bộ bài, nộp và chấm điểm. Xem lại các câu làm sai.</small></button></div><p class="small">Điểm tính trên câu có đáp án. Đáp án cộng đồng được giữ nguyên nguồn; câu hòa hoặc thiếu dữ liệu không tự chấm.</p><div class="row space"><button id="exportPair" class="btn-icon small">${icon('download')}Xuất cả hai trang HTML</button><button id="exportDownload" class="text-btn">Tải HTML trực tiếp</button><button class="text-btn danger" id="removeExam">Xóa khỏi thư viện</button></div><div class="modal-actions"><button id="closeExam">Đóng</button></div>`);
     bind('practiceMode',()=>startSession(e,'practice'));bind('eosMode',()=>startSession(e,'eos'));bind('closeExam',closeModal);bind('exportPair',()=>exportExam(e));bind('exportDownload',()=>exportExam(e,true));bind('removeExam',()=>removeExam(e));
   }
@@ -506,10 +524,10 @@
   function sessionKey(){return session.exam.id+':'+session.mode;}
   async function saveSession(){if(!session||embedded||!db)return;const saved={...session,exam:undefined,id:sessionKey(),examFingerprint:session.exam.fingerprint,elapsedBase:elapsed(),resumedAt:0,running:false,updatedAt:Date.now()};const idx=sessions.findIndex(x=>x.id===saved.id);if(idx>=0)sessions[idx]=saved;else sessions.push(saved);await put('sessions',saved);}
   async function startSession(exam,mode,fresh=false,autoResume=false){
-    const neededRootIds=new Set();
-    if(exam?.storageMode==='fs'&&exam.rootId)neededRootIds.add(exam.rootId);
-    if(exam?.isRandom&&exam.sourceMap){for(const ref of Object.values(exam.sourceMap)){const src=exams.find(x=>x.id===ref.examId);if(src?.storageMode==='fs'&&src.rootId)neededRootIds.add(src.rootId);}}
-    for(const rid of neededRootIds){const item=rootHandles.get(rid);if(item?.handle){try{if(await item.handle.queryPermission({mode:'read'})!=='granted')await item.handle.requestPermission({mode:'read'});}catch{}}}
+    const rootIds=new Set();
+    if(exam?.storageMode==='fs'&&exam.rootId)rootIds.add(exam.rootId);
+    if(exam?.isRandom)for(const q of exam.questions||[])if(q.sourceStorageMode==='fs'&&q.sourceRootId)rootIds.add(q.sourceRootId);
+    for(const rid of rootIds){const item=rootHandles.get(rid);if(item?.handle){try{if(await item.handle.queryPermission({mode:'read'})!=='granted')await item.handle.requestPermission({mode:'read'});}catch{}}}
     const saved=!fresh&&!embedded?await get('sessions',exam.id+':'+mode):null;
     if(saved&&saved.examFingerprint===exam.fingerprint&&!saved.submitted&&(Object.keys(saved.answers).length||saved.elapsedBase)){
       if(autoResume){launch(saved);return;}
@@ -550,8 +568,8 @@
           questionReadyAt=performance.now();
         }
       }));
-    });
-    if($('fullReviewImage'))mountImage($('fullReviewImage'),e,q.full,token);
+    },q);
+    if($('fullReviewImage'))mountImage($('fullReviewImage'),e,q.full,token,null,q);
     if(s.mode==='practice'){updateMiniLeaderboardDOM(e.id,q.index);fetchQuestionLeaderboard(e.id,q.index);}
     app.querySelectorAll('[data-option]').forEach(b=>b.onclick=()=>choose(b.dataset.option));app.querySelectorAll('[data-jump]').forEach(b=>b.onclick=()=>jump(Number(b.dataset.jump)));
     bind('toggleTheme',toggleTheme);bind('toggleSound',toggleSound);bind('editAnswer',editAnswer);bind('exitSession',exitSession);bind('previous',()=>navigate(-1));bind('next',()=>{if(s.mode==='practice'&&!s.submitted)checkAnswer();else navigate(1);});bind('checkAnswer',checkAnswer);bind('zoomQuestion',()=>{s.zoom=!s.zoom;renderSession();});bind('submit',()=>s.submitted?showResult():confirmSubmit());bind('restart',()=>{if(confirm('Bắt đầu lượt mới cho bộ đề này?')){session.running=false;startSession(e,s.mode,true);}});bind('resetQuestion',resetQuestion);
