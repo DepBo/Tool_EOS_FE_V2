@@ -8,7 +8,7 @@
   function commentChoice(text){
     if(typeof text!=='string')return null;
     const clean=text.trim().replace(/[.!]+$/,'').trim();
-    const explicit=clean.match(/^(?:(?:đáp\s*án|answer|chọn|key|chốt)\s*(?:là\s*)?[:：]?\s*|(?:=>|->)\s*)?([a-f](?:[\s,;+&/]*[a-f]){0,5})(?:\s+(?:nha|nhé|nhá|đúng|chuẩn))?$/iu);
+    const explicit=clean.match(/^(?:(?:đáp\s*án|answer|chọn|key|chốt)\s*(?:là\s*)?[:：]?\s*|(?:=>|->)\s*)?([a-f](?:[\s,;+&/]*[a-f]){0,5})(?:\s+(?:nha|nhé|nhá|đúng|chuẩn)(?:\s*\([^)]*\))?|\s*\([^)]*\)|\s*[-:–—]\s+.*)?$/iu);
     return explicit?letters(explicit[1]):null;
   }
   function recoverAnswer(row){
