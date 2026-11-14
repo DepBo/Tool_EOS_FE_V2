@@ -56,7 +56,7 @@ BEGIN
 
   INSERT INTO public.question_records (exam_id, question_index, nickname, duration_ms, updated_at)
   VALUES (p_exam_id, p_question_index, trim(p_nickname), p_duration_ms, now())
-  ON CONFLICT (exam_id, question_index, nickname)
+  ON CONFLICT ON CONSTRAINT question_records_unique
   DO UPDATE SET
     duration_ms = LEAST(public.question_records.duration_ms, EXCLUDED.duration_ms),
     updated_at = CASE

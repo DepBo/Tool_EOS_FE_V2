@@ -50,13 +50,17 @@
     }catch{}
   }
   async function saveQuestionSpeed(examId,qIndex,nick,durationMs){
-    const key=examId+':'+qIndex;
+    const ms=Math.round(durationMs);
+    if(!nick||nick==='Người học'||ms<=0)return;
     try{
-      const rows=await supaFetch('/rpc/record_question_speed',{method:'POST',body:JSON.stringify({p_exam_id:examId,p_question_index:Number(qIndex),p_nickname:nick,p_duration_ms:Math.round(durationMs)})});
-      if(Array.isArray(rows)){
-        questionLbCache.set(key,rows);
-        updateMiniLeaderboardDOM(examId,qIndex);
+      const existing=await supaFetch('/question_records?exam_id=eq.'+encodeURIComponent(examId)+'&question_index=eq.'+Number(qIndex)+'&nickname=eq.'+encodeURIComponent(nick)+'&limit=1');
+      const row=existing?.[0];
+      if(!row){
+        await supaFetch('/question_records',{method:'POST',body:JSON.stringify({exam_id:examId,question_index:Number(qIndex),nickname:nick,duration_ms:ms,updated_at:new Date().toISOString()})});
+      }else if(ms<row.duration_ms){
+        await supaFetch('/question_records?id=eq.'+encodeURIComponent(row.id),{method:'PATCH',body:JSON.stringify({duration_ms:ms,updated_at:new Date().toISOString()})});
       }
+      await fetchQuestionLeaderboard(examId,qIndex);
     }catch{}
   }
   function formatSpeedMs(ms){return (ms/1000).toFixed(2)+'s';}
@@ -107,13 +111,17 @@
     }catch{}
   }
   async function saveQuestionSpeed(examId,qIndex,nick,durationMs){
-    const key=examId+':'+qIndex;
+    const ms=Math.round(durationMs);
+    if(!nick||nick==='Người học'||ms<=0)return;
     try{
-      const rows=await supaFetch('/rpc/record_question_speed',{method:'POST',body:JSON.stringify({p_exam_id:examId,p_question_index:Number(qIndex),p_nickname:nick,p_duration_ms:Math.round(durationMs)})});
-      if(Array.isArray(rows)){
-        questionLbCache.set(key,rows);
-        updateMiniLeaderboardDOM(examId,qIndex);
+      const existing=await supaFetch('/question_records?exam_id=eq.'+encodeURIComponent(examId)+'&question_index=eq.'+Number(qIndex)+'&nickname=eq.'+encodeURIComponent(nick)+'&limit=1');
+      const row=existing?.[0];
+      if(!row){
+        await supaFetch('/question_records',{method:'POST',body:JSON.stringify({exam_id:examId,question_index:Number(qIndex),nickname:nick,duration_ms:ms,updated_at:new Date().toISOString()})});
+      }else if(ms<row.duration_ms){
+        await supaFetch('/question_records?id=eq.'+encodeURIComponent(row.id),{method:'PATCH',body:JSON.stringify({duration_ms:ms,updated_at:new Date().toISOString()})});
       }
+      await fetchQuestionLeaderboard(examId,qIndex);
     }catch{}
   }
   function formatSpeedMs(ms){return (ms/1000).toFixed(2)+'s';}
