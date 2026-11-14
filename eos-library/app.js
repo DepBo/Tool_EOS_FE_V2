@@ -314,6 +314,11 @@
   }
   async function getImageBlob(exam,path){
     if(!path)return null;
+    if(exam?.isRandom&&exam.sourceMap?.[path]){
+      const ref=exam.sourceMap[path];
+      const src=exams.find(x=>x.id===ref.examId);
+      if(src)return getImageBlob(src,ref.path);
+    }
     if(exam?.storageMode==='fs'&&exam.rootId){
       const entry=rootHandles.get(exam.rootId);
       if(entry?.handle){
@@ -349,7 +354,7 @@
   function statsHtml(list){const count=list.reduce((n,e)=>n+e.questions.length,0),studiedCount=list.filter(e=>examStudyInfo(e).status!=='new').length;return `<div class="stats"><div class="stat"><span class="stat-icon">${icon('book')}</span><div><strong>${list.length}</strong><small>Bộ đề trong thư viện</small></div></div><div class="stat"><span class="stat-icon">${icon('grid')}</span><div><strong>${count.toLocaleString('vi-VN')}</strong><small>Câu hỏi sẵn sàng</small></div></div><button class="stat stat-clickable" id="openStudiedStat" type="button"><span class="stat-icon">${icon('history')}</span><div><strong>${studiedCount} / ${list.length}</strong><small>${subject?'Đề đã học trong môn':'Bộ đề đã từng học'}</small></div></button></div>`;}
   function renderLibrary(){renderToken++;const token=renderToken;view='library';
     const list=subject?exams.filter(e=>e.subject===subject):exams;
-    const heading=`<div class="page-heading"><div>${subject?'<button class="back" id="backSubjects">'+icon('back')+'Tất cả môn học</button>':'<span class="eyebrow">YOUR LEARNING SPACE</span>'}<h1>${subject?esc(subject):'Hôm nay, học gì nào?'}</h1><p>${subject?'Các bộ đề được sắp xếp theo năm. Chọn đề và bắt đầu theo cách của bạn.':'Tất cả môn học và bộ đề của bạn, trong một không gian gọn gàng.'}</p></div><button class="primary btn-icon" id="addExams">${icon('plus')}Thêm đề</button></div>`;
+    const heading=`<div class="page-heading"><div>${subject?'<button class="back" id="backSubjects">'+icon('back')+'Tất cả môn học</button>':'<span class="eyebrow">YOUR LEARNING SPACE</span>'}<h1>${subject?esc(subject):'Hôm nay, học gì nào?'}</h1><p>${subject?'Các bộ đề được sắp xếp theo năm. Chọn đề và bắt đầu theo cách của bạn.':'Tất cả môn học và bộ đề của bạn, trong một không gian gọn gàng.'}</p></div><div class="row">${subject?'<button class="btn-icon" id="createRandomExam">🎲 Tạo đề ngẫu nhiên</button>':''}<button class="primary btn-icon" id="addExams">${icon('plus')}Thêm đề</button></div></div>`;
     const hero=subject?'':`<div class="hero"><div><span class="eyebrow">MỖI NGÀY MỘT CHÚT TIẾN BỘ</span><h2>Ôn chắc từng câu.<br>Tự tin bước vào phòng thi.</h2><p>Chọn luyện tập để hiểu từng đáp án, hoặc thử sức với một bài thi EOS hoàn chỉnh.</p></div><div class="hero-art"><div class="paper"><div class="paper-check">✓</div><div class="paper-line"></div><div class="paper-line" style="width:75%"></div><div class="paper-line" style="width:90%"></div></div></div></div>`;
     const filtered=list.filter(e=>(!search||(e.title+' '+e.subject+' '+e.year).toLocaleLowerCase().includes(search.toLocaleLowerCase()))&&(!subject||libraryStatus==='all'||examStudyInfo(e).status===libraryStatus));
     let body='';
@@ -362,7 +367,7 @@
     const resumeHtml=inProgressItems.length?`<section class="resume-section"><div class="row space" style="margin-bottom:10px"><h3 style="margin:0;font-size:15px">⏳ Đang làm dở · Tiếp tục nhanh (${inProgressItems.length})</h3></div><div class="resume-grid">${inProgressItems.map(({exam:e,session:s})=>{const doneQ=Object.keys(s.answers||{}).length;return `<button type="button" class="resume-card" data-resume-exam="${esc(e.id)}" data-resume-mode="${esc(s.mode)}"><div class="row space"><span class="badge progress">${esc(e.subject)} · ${modeLabel(s.mode)}</span><span class="small muted">${time(s.elapsedBase||0)}</span></div><strong class="resume-title">${esc(e.title)}</strong><div class="row space" style="margin-top:auto"><span class="small muted">Đã chọn ${doneQ}/${e.questions.length} câu</span><span class="resume-cta">Làm tiếp ${icon('arrow')}</span></div></button>`;}).join('')}</div></section>`:'';
     const statusSelect=subject?'<select id="libraryStatus" aria-label="Lọc trạng thái học"><option value="all">Tất cả trạng thái</option><option value="new">Chưa học</option><option value="progress">Đang làm dở</option><option value="done">Đã học</option></select>':'';
     app.innerHTML=shell(heading+hero+'<div id="permBannerMount"></div>'+statsHtml(list)+resumeHtml+`<div class="toolbar"><h3 style="font-size:15px;margin:0">${subject?'Danh sách đề thi':'Môn học của bạn'}</h3><div class="row"><div class="search-wrap">${icon('search')}<input id="search" placeholder="Tìm môn, tên đề, năm…" value="${esc(search)}" aria-label="Tìm môn hoặc đề"></div>${statusSelect}<button id="rescan" class="btn-icon small">${icon('refresh')}Quét lại</button></div></div>`+body);
-    bindShell();bind('backSubjects',()=>{subject=null;search='';libraryStatus='all';renderLibrary();});bind('emptyAdd',showImport);bind('openStudiedStat',()=>{studiedFilter={status:'studied',subject:subject||'',search:''};subject=null;renderStudied();});
+    bindShell();bind('backSubjects',()=>{subject=null;search='';libraryStatus='all';renderLibrary();});bind('emptyAdd',showImport);bind('createRandomExam',()=>createRandomExam(subject));bind('openStudiedStat',()=>{studiedFilter={status:'studied',subject:subject||'',search:''};subject=null;renderStudied();});
     app.querySelectorAll('[data-resume-exam]').forEach(b=>b.onclick=()=>{const ex=exams.find(x=>x.id===b.dataset.resumeExam);if(ex)startSession(ex,b.dataset.resumeMode,false,true);});
     getPendingRoots().then(pending=>{if(token!==renderToken||!pending.length)return;const m=$('permBannerMount');if(!m)return;m.innerHTML=`<div class="perm-banner"><div><strong>🔒 Cần xác nhận quyền đọc thư mục đề</strong><p class="small muted" style="margin:2px 0 0">Trình duyệt tạm khóa quyền đọc ổ đĩa (${pending.map(p=>esc(p.name||p.handle?.name||'Thư mục')).join(', ')}) sau khi mở lại trang. Bấm 1 lần để hiển thị lại toàn bộ ảnh.</p></div><button id="grantRootsBtn" class="primary">🔓 Mở quyền đọc thư mục</button></div>`;bind('grantRootsBtn',grantAllRoots);});
     if($('libraryStatus')){$('libraryStatus').value=libraryStatus;$('libraryStatus').onchange=e=>{libraryStatus=e.target.value;renderLibrary();};}
@@ -454,6 +459,46 @@
       const actions=document.createElement('div');actions.className='modal-actions';actions.innerHTML='<button class="primary" id="finishImport">Về thư viện</button>';modal.append(actions);const summary=document.createElement('p');summary.className='import-summary';summary.textContent=`${added} đề mới · ${updated} cập nhật · ${skipped} đã có · ${failed} lỗi`;actions.before(summary);bind('finishImport',()=>{closeModal();renderLibrary();});
     }catch(e){modal.innerHTML='<h2>Chưa nhập được thư mục</h2><p>'+esc(e.message)+'</p><div class="modal-actions"><button id="closeImportError">Đóng</button></div>';bind('closeImportError',closeModal);}finally{importing=false;}
   }
+  async function createRandomExam(sub){
+    if(!sub)return;
+    const baseExams=exams.filter(e=>e.subject===sub&&!e.isRandom);
+    const pool=[];
+    for(const src of baseExams)for(const q of src.questions||[])pool.push({src,q});
+    if(!pool.length){notify('Môn '+sub+' chưa có câu hỏi nào để tạo đề ngẫu nhiên.');return;}
+    for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+    const picked=pool.slice(0,Math.min(60,pool.length));
+    const escRe=sub.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const titleRe=new RegExp('^'+escRe+'\\s*-\\s*(\\d+)$','i');
+    const usedIds=new Set();
+    for(const e of exams){
+      if(e.subject!==sub)continue;
+      if(Number.isInteger(e.randomId))usedIds.add(e.randomId);
+      const m=String(e.title||'').trim().match(titleRe);
+      if(m)usedIds.add(Number(m[1]));
+    }
+    let nextId=1;while(usedIds.has(nextId))nextId++;
+    const title=`${sub} - ${nextId}`;
+    const sourceMap={},questions=[];
+    for(let i=0;i<picked.length;i++){
+      const {src,q}=picked[i],idx=i+1,imgKey=q.image?`r${idx}_img`:null,fullKey=q.full?`r${idx}_full`:null;
+      if(imgKey)sourceMap[imgKey]={examId:src.id,path:q.image};
+      if(fullKey)sourceMap[fullKey]={examId:src.id,path:q.full};
+      questions.push({...JSON.parse(JSON.stringify(q)),index:idx,id:idx,label:'Q'+idx,image:imgKey,full:fullKey});
+    }
+    const id=await digest('random|'+sub+'|'+nextId+'|'+crypto.randomUUID());
+    const fingerprint=await digest('random-fp|'+questions.map(q=>sourceMap[q.image]?.examId+':'+sourceMap[q.image]?.path).join('|'));
+    const newExam={
+      id,title,subject:sub,year:new Date().getFullYear(),source:`random:${sub}:${nextId}`,
+      isRandom:true,randomId:nextId,sourceMap,questions,
+      unknown:questions.filter(q=>!q.answer).length,missing:0,
+      storageMode:'random',assetKeys:[],fingerprint,importedAt:Date.now()
+    };
+    await put('exams',newExam);
+    exams.push(newExam);
+    renderLibrary();
+    notify(`Đã tạo đề ngẫu nhiên ${title} (${questions.length} câu)!`);
+    showExam(newExam.id);
+  }
   function showExam(id){const e=exams.find(e=>e.id===id);if(!e)return;openModal(`<span class="eyebrow">${esc(e.subject)} · ${e.year||'CHƯA RÕ NĂM'}</span><h2 style="font-size:21px;line-height:1.5">${esc(e.title)}</h2><p>${e.questions.length} câu có ảnh · ${e.unknown} câu chưa rõ đáp án${e.missing?' · '+e.missing+' ảnh còn thiếu':''}</p><div class="mode-cards"><button class="mode-card" id="practiceMode">${icon('play')}<strong>Luyện tập</strong><small>Kiểm tra từng câu. Đúng tự chuyển, sai xem giải thích và bình luận.</small></button><button class="mode-card" id="eosMode">${icon('clock')}<strong>Thi thử EOS</strong><small>Làm toàn bộ bài, nộp và chấm điểm. Xem lại các câu làm sai.</small></button></div><p class="small">Điểm tính trên câu có đáp án. Đáp án cộng đồng được giữ nguyên nguồn; câu hòa hoặc thiếu dữ liệu không tự chấm.</p><div class="row space"><button id="exportPair" class="btn-icon small">${icon('download')}Xuất cả hai trang HTML</button><button id="exportDownload" class="text-btn">Tải HTML trực tiếp</button><button class="text-btn danger" id="removeExam">Xóa khỏi thư viện</button></div><div class="modal-actions"><button id="closeExam">Đóng</button></div>`);
     bind('practiceMode',()=>startSession(e,'practice'));bind('eosMode',()=>startSession(e,'eos'));bind('closeExam',closeModal);bind('exportPair',()=>exportExam(e));bind('exportDownload',()=>exportExam(e,true));bind('removeExam',()=>removeExam(e));
   }
@@ -461,7 +506,10 @@
   function sessionKey(){return session.exam.id+':'+session.mode;}
   async function saveSession(){if(!session||embedded||!db)return;const saved={...session,exam:undefined,id:sessionKey(),examFingerprint:session.exam.fingerprint,elapsedBase:elapsed(),resumedAt:0,running:false,updatedAt:Date.now()};const idx=sessions.findIndex(x=>x.id===saved.id);if(idx>=0)sessions[idx]=saved;else sessions.push(saved);await put('sessions',saved);}
   async function startSession(exam,mode,fresh=false,autoResume=false){
-    if(exam?.storageMode==='fs'&&exam.rootId){const item=rootHandles.get(exam.rootId);if(item?.handle){try{if(await item.handle.queryPermission({mode:'read'})!=='granted')await item.handle.requestPermission({mode:'read'});}catch{}}}
+    const neededRootIds=new Set();
+    if(exam?.storageMode==='fs'&&exam.rootId)neededRootIds.add(exam.rootId);
+    if(exam?.isRandom&&exam.sourceMap){for(const ref of Object.values(exam.sourceMap)){const src=exams.find(x=>x.id===ref.examId);if(src?.storageMode==='fs'&&src.rootId)neededRootIds.add(src.rootId);}}
+    for(const rid of neededRootIds){const item=rootHandles.get(rid);if(item?.handle){try{if(await item.handle.queryPermission({mode:'read'})!=='granted')await item.handle.requestPermission({mode:'read'});}catch{}}}
     const saved=!fresh&&!embedded?await get('sessions',exam.id+':'+mode):null;
     if(saved&&saved.examFingerprint===exam.fingerprint&&!saved.submitted&&(Object.keys(saved.answers).length||saved.elapsedBase)){
       if(autoResume){launch(saved);return;}
