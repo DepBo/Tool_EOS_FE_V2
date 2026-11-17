@@ -47,7 +47,7 @@ Manifest cũ chỉ có `comments: 1` là **số lượng**, không có nội dun
 - Điểm chỉ tính trên câu có đáp án: `số đúng / số câu có đáp án × 10`. Câu chưa trả lời có đáp án vẫn tính sai; câu chưa rõ không bị tự gán A.
 - Tiến độ lưu khi thao tác và khi quay về thư viện. Mở lại cùng đề/chế độ có thể tiếp tục lượt dở. Không đảm bảo ghi thao tác cuối nếu trình duyệt bị tắt đột ngột ngay lúc lưu.
 
-Phím tắt: A–F hoặc 1–6 chọn; ← quay lại câu trước; Enter hoặc → kiểm tra và sang câu tiếp trong Luyện tập (trong EOS → sang câu tiếp); R làm lại câu trước khi nộp.
+Phím tắt: A–F hoặc 1–6 chọn; ← quay lại câu trước; Enter hoặc → kiểm tra và sang câu tiếp trong Luyện tập (trong EOS → sang câu tiếp); R làm lại câu trước khi nộp; S bật/tắt dấu sao cho câu hiện tại.
 
 ## Xuất cả hai trang để chia sẻ
 
