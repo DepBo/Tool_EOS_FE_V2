@@ -41,6 +41,8 @@ Manifest cũ chỉ có `comments: 1` là **số lượng**, không có nội dun
 - **Luyện tập:** bắt buộc kiểm tra từng câu trước khi sang câu tiếp theo; đúng phát tiếng *ting* (có thể bật/tắt) và tự sang câu tiếp sau 0,65 giây; sai dừng lại mở đáp án, số phiếu, bình luận và ảnh ghép. Câu chưa rõ được ghi chưa chấm.
 - **Thi thử EOS:** chọn đáp án toàn bài; nộp bài mới mở đáp án và chấm điểm. Có cảnh báo khi chưa chọn hết, xem lại toàn bài / câu sai.
 - Có đồng hồ đếm thời gian, chọn một/nhiều đáp án (câu nhiều lựa chọn được đánh dấu nổi bật và hiển thị số đáp án cần chọn nếu biết), 4–6 phương án, phóng ảnh, điều hướng vòng, lọc câu sai/chưa trả lời/chưa rõ.
+- Nút sao ở từng câu lưu dấu trong trình duyệt và dùng được ở cả Luyện tập lẫn Thi thử EOS. Bộ lọc điều hướng **Câu đã đánh dấu sao** chỉ hiện các câu đã lưu. Trong cửa sổ mở đề, **Xem câu đã đánh dấu sao** liệt kê các câu của đề đó và cho phép mở lại từng câu.
+- Thẻ **Đề được đánh dấu sao** trên trang thư viện và trang môn học gom tất cả câu đã lưu trong phạm vi tương ứng. Có thể luyện tập hoặc thi thử EOS với đúng số câu đã đánh dấu, không giới hạn hay chia thành các bộ 60 câu. Dấu sao gắn với câu của đề gốc, kể cả khi đánh dấu trong đề ngẫu nhiên.
 - Trên desktop: lựa chọn bên trái, câu hỏi ở giữa, điều hướng bên phải. Màn hình nhỏ xếp lại cho dễ đọc.
 - Điểm chỉ tính trên câu có đáp án: `số đúng / số câu có đáp án × 10`. Câu chưa trả lời có đáp án vẫn tính sai; câu chưa rõ không bị tự gán A.
 - Tiến độ lưu khi thao tác và khi quay về thư viện. Mở lại cùng đề/chế độ có thể tiếp tục lượt dở. Không đảm bảo ghi thao tác cuối nếu trình duyệt bị tắt đột ngột ngay lúc lưu.

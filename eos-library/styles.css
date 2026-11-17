@@ -27,6 +27,25 @@
 .option.wrong .multi-box{background:var(--red);border-color:var(--red);color:#fff}
 .nav-grid button{position:relative}
 .nav-grid button.multi::after{content:'';position:absolute;top:3px;right:3px;width:5px;height:5px;border-radius:50%;background:#d98218}
+.nav-grid button.starred::before{content:'★';position:absolute;top:0;left:3px;color:#e2a72e;font-size:11px;line-height:1}
+.question-tools{display:flex;align-items:center;gap:8px}
+.star-button{padding:5px;display:inline-grid;place-items:center;color:#9a8970;background:transparent;border:0}
+.star-button:hover:not(:disabled),.star-button.active{color:#dfa72d;background:#fff5d9}
+.star-button.active .icon,.starred-library-icon .icon{fill:currentColor}
+.star-review-button{display:inline-flex;align-items:center;gap:6px;padding:6px 9px;margin:0 0 18px;color:#ad7920;background:transparent;font-size:12px}
+.star-review-button .icon{width:15px;height:15px}
+.starred-question-list{max-height:280px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:12px 0}
+.starred-question-list button{display:flex;align-items:center;gap:6px;text-align:left;padding:8px;font-size:12px}
+.starred-question-list .icon{width:14px;height:14px;color:#dfa72d;fill:currentColor}
+.starred-library-card{width:100%;display:flex;align-items:center;gap:16px;padding:18px 22px;margin:0 0 28px;text-align:left;background:#fffaf0;border-color:#e8d7ad}
+.starred-library-card:hover:not(:disabled){background:#fff3d5}
+.starred-library-card>span:nth-child(2){display:grid;gap:4px;flex:1}
+.starred-library-card strong{font-size:16px}
+.starred-library-card small{color:var(--muted);font-size:12px}
+.starred-library-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:11px;background:#fae8b7;color:#bd8220}
+html[data-theme="dark"] .starred-library-card{background:#2a251b;border-color:#6a552c}
+html[data-theme="dark"] .starred-library-card:hover:not(:disabled){background:#382e1c}
+html[data-theme="dark"] .star-button.active{background:#4b3b1b}
 .sound-btn{padding:8px 11px;display:inline-flex;align-items:center;gap:6px;font-size:12px}
 .sound-btn.muted{color:var(--muted);opacity:.75}
 
