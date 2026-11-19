@@ -8,8 +8,7 @@
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const SUPA_URL='https://ghbnoojsxdqqbecszqas.supabase.co/rest/v1';
   const SUPA_KEY='sb_publishable_iQtscvMNv_UmjmSP30vkRw_7Pq7k6PU';
-  let notes={},noteUi={key:null,open:false},noteSaveTimer=null;
-  try{notes=JSON.parse(localStorage.getItem('studyroom-notes')||'{}')||{};}catch{notes={};}
+  let notes={},notesOwner=null,noteUi={key:null,open:false},noteSaveTimer=null,notePushTimer=null,notePushing=false,noteCloudOk=null;
   let db,exams=[],history=[],sessions=[],stars=new Map(),settings={name:'',endpoint:'',sync:false,sound:true,theme:'light'},session=null,subject=null,view='library',search='',libraryStatus='all',studiedFilter={status:'studied',subject:'',search:''},importing=false,rememberedRoot=null;
   let renderToken=0,timer,autoTimer,toastTimer,comboTimer=null,audioCtx=null,cloudSyncStatus='idle',leaderboardUsers=[];
   let questionTimerKey=null,questionReadyAt=null,navLockUntil=0,lastSpeedResult=null;
@@ -101,6 +100,7 @@
       }
       cloudSyncStatus='synced';
     }catch{cloudSyncStatus='offline';}
+    syncNotesWithCloud().catch(()=>{});
   }
   async function fetchQuestionLeaderboard(examId,qIndex){
     const key=examId+':'+qIndex;
@@ -287,14 +287,44 @@
   function starIdentity(exam,q){const oldRandomIndex=q.sourceExamId&&!q.sourceQuestionIndex?Number(q.label?.match(/\(Q(\d+)\)/i)?.[1]):null;return {examId:q.sourceExamId||exam.id,questionIndex:q.sourceQuestionIndex||oldRandomIndex||q.index};}
   function starKey(examId,questionIndex){return JSON.stringify([examId,Number(questionIndex)]);}
   function noteKeyOf(exam,q){const ref=starIdentity(exam,q);return ref.examId+':'+ref.questionIndex;}
-  function getNote(exam,q){return notes[noteKeyOf(exam,q)]?.text||'';}
+  function cloudNick(){const n=settings.name?.trim();return n&&n!=='Người học'?n:'';}
+  function notesStoreKey(){return 'studyroom-notes:'+(cloudNick()||'_local');}
+  function ensureNotesOwner(){const owner=notesStoreKey();if(notesOwner===owner)return;notesOwner=owner;noteUi={key:null,open:false};try{let raw=localStorage.getItem(owner);if(raw===null){const legacy=localStorage.getItem('studyroom-notes');if(legacy!==null){raw=legacy;localStorage.setItem(owner,legacy);localStorage.removeItem('studyroom-notes');}}const parsed=JSON.parse(raw||'{}')||{};for(const v of Object.values(parsed))if(v&&v.dirty===undefined)v.dirty=true;notes=parsed;}catch{notes={};}}
+  function getNote(exam,q){ensureNotesOwner();return notes[noteKeyOf(exam,q)]?.text||'';}
   function hasNote(exam,q){return !!getNote(exam,q).trim();}
-  function persistNotes(){try{localStorage.setItem('studyroom-notes',JSON.stringify(notes));return true;}catch{notify('Không lưu được ghi chú (bộ nhớ trình duyệt đầy?).');return false;}}
-  function setNote(exam,q,text){const key=noteKeyOf(exam,q);if(text.trim())notes[key]={text,updatedAt:Date.now()};else delete notes[key];return persistNotes();}
+  function persistNotes(){try{localStorage.setItem(notesOwner||notesStoreKey(),JSON.stringify(notes));return true;}catch{notify('Không lưu được ghi chú (bộ nhớ trình duyệt đầy?).');return false;}}
+  function setNote(exam,q,text){ensureNotesOwner();const key=noteKeyOf(exam,q),prev=notes[key];if(!text.trim()&&!prev)return true;if(prev&&prev.text===text)return true;notes[key]={text:text.trim()?text:'',updatedAt:Date.now(),dirty:true};const ok=persistNotes();scheduleNotePush();return ok;}
+  function noteStatusText(key){const n=notes[key];if(!n||!n.text.trim())return 'Tự động lưu khi gõ';const t=new Date(n.updatedAt).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});if(!cloudNick()||embedded)return 'Đã lưu trên máy · '+t;if(n.dirty)return noteCloudOk===false?'Đã lưu trên máy · chưa lên Cloud':'Đang đồng bộ Cloud…';return 'Đã đồng bộ Cloud · '+t;}
+  function refreshNoteStatus(){if(!session)return;const st=$('noteStatus');if(st&&noteUi.key)st.textContent=noteStatusText(noteUi.key);}
+  function scheduleNotePush(){if(embedded||!cloudNick())return;clearTimeout(notePushTimer);notePushTimer=setTimeout(()=>pushDirtyNotes().catch(()=>{}),1200);}
+  async function pushDirtyNotes(){
+    if(embedded||notePushing)return;const nick=cloudNick();if(!nick)return;ensureNotesOwner();
+    const dirty=Object.entries(notes).filter(([,v])=>v?.dirty);if(!dirty.length)return;
+    notePushing=true;
+    try{
+      const rows=[],sent=new Map();
+      for(const [key,v] of dirty){const cut=key.lastIndexOf(':'),exam_id=key.slice(0,cut),question_index=Number(key.slice(cut+1));if(!exam_id||!Number.isInteger(question_index)||question_index<1){v.dirty=false;continue;}rows.push({nickname:nick,exam_id,question_index,content:String(v.text||'').slice(0,5000),updated_at:new Date(v.updatedAt||Date.now()).toISOString()});sent.set(key,v.updatedAt);}
+      for(let i=0;i<rows.length;i+=200)await supaFetch('/question_notes?on_conflict=nickname,exam_id,question_index',{method:'POST',headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rows.slice(i,i+200))});
+      for(const [key,t] of sent){const v=notes[key];if(v&&v.updatedAt===t)v.dirty=false;}
+      noteCloudOk=true;persistNotes();
+    }catch{noteCloudOk=false;}
+    finally{notePushing=false;refreshNoteStatus();}
+    if(noteCloudOk&&Object.values(notes).some(v=>v?.dirty))scheduleNotePush();
+  }
+  async function syncNotesWithCloud(){
+    if(embedded)return;const nick=cloudNick();ensureNotesOwner();if(!nick)return;
+    let rows;
+    try{rows=await supaFetch('/question_notes?nickname=eq.'+encodeURIComponent(nick)+'&select=exam_id,question_index,content,updated_at&limit=10000');noteCloudOk=true;}catch{noteCloudOk=false;refreshNoteStatus();return;}
+    if(!Array.isArray(rows))return;
+    let changed=false;
+    for(const r of rows){const key=r.exam_id+':'+r.question_index,cloudT=Date.parse(r.updated_at)||0,local=notes[key];if(!local||cloudT>(local.updatedAt||0)){notes[key]={text:r.content||'',updatedAt:cloudT,dirty:false};changed=true;}else if(cloudT===local.updatedAt&&local.dirty){local.dirty=false;changed=true;}}
+    if(changed){persistNotes();if(session&&document.activeElement?.id!=='noteInput'){noteUi.key=null;renderSession();}}
+    await pushDirtyNotes();
+  }
   function syncNoteIndicators(){if(!session)return;const e=session.exam,q=e.questions[session.current],on=hasNote(e,q);const btn=$('toggleNote');if(btn){btn.classList.toggle('has-note',on);btn.classList.toggle('active',noteUi.open);btn.setAttribute('aria-expanded',String(noteUi.open));}const cell=app.querySelector(`.nav-grid [data-jump="${session.current}"]`);if(cell)cell.classList.toggle('noted',on);}
   function toggleNotePanel(force){if(!session)return;noteUi.open=typeof force==='boolean'?force:!noteUi.open;const panel=$('notePanel');if(!panel)return;panel.hidden=!noteUi.open;syncNoteIndicators();if(noteUi.open)requestAnimationFrame(()=>{const ta=$('noteInput');if(ta){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);}});}
   function bindNotePanel(e,q){const ta=$('noteInput');if(!ta)return;const status=$('noteStatus');const autosize=()=>{ta.style.height='auto';ta.style.height=Math.min(320,Math.max(88,ta.scrollHeight))+'px';};autosize();
-    const flush=()=>{clearTimeout(noteSaveTimer);noteSaveTimer=null;if(setNote(e,q,ta.value)&&status){const t=notes[noteKeyOf(e,q)]?.updatedAt;status.textContent=ta.value.trim()?'Đã lưu · '+new Date(t).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}):'Chưa có ghi chú';}syncNoteIndicators();};
+    const flush=()=>{clearTimeout(noteSaveTimer);noteSaveTimer=null;if(setNote(e,q,ta.value)&&status)status.textContent=noteStatusText(noteKeyOf(e,q));syncNoteIndicators();};
     ta.oninput=()=>{autosize();if(status)status.textContent='Đang lưu…';clearTimeout(noteSaveTimer);noteSaveTimer=setTimeout(flush,400);};
     ta.onblur=()=>{if(noteSaveTimer)flush();};
     ta.onkeydown=evt=>{if(evt.key==='Escape'){evt.preventDefault();evt.stopPropagation();if(noteSaveTimer)flush();ta.blur();}};
@@ -611,7 +641,7 @@
     const noteKey=noteKeyOf(e,q),noteText=getNote(e,q),noted=!!noteText.trim();if(noteUi.key!==noteKey)noteUi={key:noteKey,open:noted};
     const noteSaved=notes[noteKey]?.updatedAt;
     const noteBtn=`<button id="toggleNote" type="button" class="note-button ${noted?'has-note':''} ${noteUi.open?'active':''}" aria-expanded="${noteUi.open}" aria-controls="notePanel" aria-label="Ghi chú câu này" title="Ghi chú câu này · N">${icon('note')}<span class="note-dot" aria-hidden="true"></span></button>`;
-    const noteHtml=`<section id="notePanel" class="note-panel" ${noteUi.open?'':'hidden'}><div class="note-head"><strong>${icon('note')} Ghi chú · ${esc(q.label)}</strong><div class="row"><span id="noteStatus" class="small muted">${noted?'Đã lưu · '+new Date(noteSaved).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}):'Tự động lưu khi gõ'}</span><button id="clearNote" type="button" class="text-btn">Xóa</button><button id="closeNote" type="button" class="text-btn" aria-label="Thu gọn ghi chú">Thu gọn</button></div></div><textarea id="noteInput" class="note-input" maxlength="5000" placeholder="Ghi lại mẹo nhớ, công thức, lý do chọn đáp án… (Esc để thoát ô nhập)">${esc(noteText)}</textarea><p class="note-hint small muted">Ghi chú gắn với câu gốc nên vẫn hiện khi câu này xuất hiện trong đề ngẫu nhiên, đề câu sao hoặc khi đảo câu hỏi.</p></section>`;
+    const noteHtml=`<section id="notePanel" class="note-panel" ${noteUi.open?'':'hidden'}><div class="note-head"><strong>${icon('note')} Ghi chú · ${esc(q.label)}</strong><div class="row"><span id="noteStatus" class="small muted">${noteStatusText(noteKey)}</span><button id="clearNote" type="button" class="text-btn">Xóa</button><button id="closeNote" type="button" class="text-btn" aria-label="Thu gọn ghi chú">Thu gọn</button></div></div><textarea id="noteInput" class="note-input" maxlength="5000" placeholder="Ghi lại mẹo nhớ, công thức, lý do chọn đáp án… (Esc để thoát ô nhập)">${esc(noteText)}</textarea><p class="note-hint small muted">Ghi chú gắn với câu gốc nên vẫn hiện khi câu này xuất hiện trong đề ngẫu nhiên, đề câu sao hoặc khi đảo câu hỏi.</p></section>`;
     app.innerHTML=`<div class="session-page"><header class="session-header"><div class="row"><button id="exitSession" class="btn-icon ghost">${icon('back')}Thư viện</button><div class="session-title"><h1>${esc(e.title)}</h1><p>${s.mode==='eos'?'THI THỬ EOS':'LUYỆN TẬP'}${s.shuffled?' · ĐẢO CÂU HỎI':''} · ${e.questions.length} CÂU · ${esc(nickname())}</p></div></div><div class="row">${streakBadge}${themeBtn}${soundBtn}<span id="clock" class="clock">${time(elapsed())}</span><button id="restart" class="btn-icon">${icon('refresh')}Làm lại</button><button id="submit" class="primary">${s.submitted?'Bảng điểm':'Nộp bài'}</button></div></header><div class="session-layout"><aside class="session-side"><div class="side-panel ${isMulti?'is-multi':''}">${multiBanner}<h3 style="margin-top:12px">Chọn đáp án của bạn</h3><div class="options">${opts}</div>${unknownControls}${s.mode==='practice'&&!s.submitted?'<button id="editAnswer" class="text-btn" style="margin-top:12px">Xác nhận / sửa đáp án</button>':''}<div class="row" style="margin-top:16px"><button id="questionType" class="text-btn">${isMulti?'Đổi sang chọn một':'Đổi sang chọn nhiều'}</button><select id="optionCount" aria-label="Số phương án" style="font-size:11px;padding:5px" ${isReview?'disabled':''}>${[4,5,6].map(n=>`<option value="${n}" ${q.options.length===n?'selected':''}>${n} phương án</option>`).join('')}</select></div>${s.mode==='practice'?'<button id="checkAnswer" class="primary" style="width:100%;margin-top:15px" '+(s.submitted?'disabled':'')+'>'+(isReview?'Câu tiếp theo →':'Kiểm tra · Enter / →')+'</button>':''}<p class="kbd-hints">${kbdHints}</p></div><div class="side-panel"><div class="row space"><h3>Điều hướng câu hỏi</h3><span class="badge">${answered}/${e.questions.length}</span></div><select id="questionFilter" class="session-filter" aria-label="Lọc câu hỏi"><option value="all">Tất cả câu hỏi</option><option value="wrong">Câu làm sai</option><option value="unanswered">Chưa trả lời</option><option value="unknown">Chưa rõ đáp án</option><option value="starred">Câu đã đánh dấu sao</option></select><div class="nav-grid">${order.map((i,pos)=>{if(!visibleIndices.has(i))return '';const n=e.questions[i],reveal=feedbackVisible(n),st=reveal?C.grade(n,s.answers[n.index]):s.answers[n.index]?.length?'answered':'',tip=s.shuffled?'Câu gốc '+n.label+(n.type==='multi'?' (chọn nhiều đáp án)':''):n.type==='multi'?'Câu chọn nhiều đáp án':'';return `<button data-jump="${i}" class="${i===s.current?'current':''} ${st} ${n.type==='multi'?'multi':''} ${hasStar(e,n)?'starred':''} ${hasNote(e,n)?'noted':''}" aria-label="Câu ${s.shuffled?pos+1:n.index}${n.type==='multi'?' (chọn nhiều đáp án)':''}" ${tip?`title="${tip}"`:''}>${s.shuffled?pos+1:n.index}</button>`;}).join('')}</div><p class="session-summary" style="margin-top:16px;margin-bottom:0">${s.mode==='practice'?`Đúng ${summary.correct} · Sai ${summary.wrong}<br>Đã kiểm tra ${Object.keys(s.checked).length}/${e.questions.length}${s.streak>=2?`<br><span class="streak-inline">${icon('fire')} Đang đúng ${s.streak} câu liên tiếp!</span>`:''}`:`Đã chọn ${answered} · Còn ${e.questions.length-answered}`}<br>${e.unknown} câu chưa có đáp án chấm</p>${miniLbHtml}</div></aside><main class="session-main">${score}<section class="question-panel"><div class="question-bar"><div class="row"><strong>${q.label}</strong><span class="muted small">Câu ${curPos+1} / ${e.questions.length}</span>${isMulti?`<span class="badge multi-badge">${esc(multiLabel)}</span>`:''}${!q.answer?'<span class="badge warning">Chưa rõ đáp án</span>':''}</div><div class="question-tools">${noteBtn}<button id="toggleStar" type="button" class="star-button ${hasStar(e,q)?'active':''}" aria-pressed="${hasStar(e,q)}" aria-label="${hasStar(e,q)?'Bỏ đánh dấu sao':'Đánh dấu sao'} câu này" title="${hasStar(e,q)?'Bỏ đánh dấu sao':'Đánh dấu sao'}">${icon('star')}</button><button id="zoomQuestion" class="image-open">${s.zoom?'Thu vừa khung':'Phóng ảnh 150%'}</button></div></div><div class="question-image ${s.zoom?'zoom':''}"><img id="questionImage" alt="Ảnh câu hỏi ${q.index}"></div></section>${noteHtml}<div class="session-footer"><button id="previous" class="btn-icon">${icon('back')}Câu trước</button><span class="small muted">${s.mode==='eos'&&!s.submitted?'Đáp án được mở sau khi nộp bài.':s.mode==='practice'&&!s.submitted?'Kiểm tra xong mới sang câu tiếp theo.':'Dữ liệu đáp án theo manifest của bộ đề.'}</span><button id="next" class="btn-icon">${s.mode==='practice'&&!s.submitted&&!isReview?'Kiểm tra & tiếp':'Câu tiếp'}${icon('arrow')}</button></div>${feedback}</main></div></div>`;
     const leftPanel=app.querySelector('.session-side'),navigation=leftPanel.lastElementChild;navigation.classList.add('session-navigation');app.querySelector('.session-layout').append(navigation);
     $('questionFilter').value=s.filter;
@@ -791,6 +821,8 @@
   }
   async function writeExport(dir,name,blob){let exists=false;try{await dir.getFileHandle(name);exists=true;}catch(e){if(e.name!=='NotFoundError')throw e;}if(exists&&!confirm('Ghi đè '+name+' trong thư mục xuất?'))throw Error('Đã dừng xuất, giữ file cũ.');const handle=await dir.getFileHandle(name,{create:true}),stream=await handle.createWritable();await stream.write(blob);await stream.close();}
   function download(name,blob){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&Object.values(notes).some(v=>v?.dirty))pushDirtyNotes().catch(()=>{});});
+  window.addEventListener('online',()=>syncNotesWithCloud().catch(()=>{}));
   document.addEventListener('keydown',e=>{
     if(e.repeat||e.ctrlKey||e.metaKey||e.altKey||!session||modal.open||['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))return;
     const key=e.key.toUpperCase();
