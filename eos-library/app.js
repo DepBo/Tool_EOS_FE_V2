@@ -12,7 +12,8 @@
   let db,exams=[],history=[],sessions=[],stars=new Map(),settings={name:'',endpoint:'',sync:false,sound:true,theme:'light'},session=null,subject=null,view='library',search='',libraryStatus='all',studiedFilter={status:'studied',subject:'',search:''},importing=false,rememberedRoot=null;
   let renderToken=0,timer,autoTimer,toastTimer,comboTimer=null,audioCtx=null,cloudSyncStatus='idle',leaderboardUsers=[];
   let questionTimerKey=null,questionReadyAt=null,navLockUntil=0,lastSpeedResult=null;
-  const questionLbCache=new Map(),rootHandles=new Map();
+  const questionLbCache=new Map(),rootHandles=new Map(),aiAnswersCache=new Map(),aiFetchedKeys=new Set(),aiErrorMap=new Map();
+  let aiLoadingKey=null;
   const urls=new Map();
   async function supaFetch(path,options={}){const headers={'apikey':SUPA_KEY,'Content-Type':'application/json',...(options.headers||{})};const res=await fetch(SUPA_URL+path,{...options,headers,signal:options.signal||AbortSignal.timeout(10000)});if(!res.ok){const text=await res.text().catch(()=>'');throw Error('Cloud HTTP '+res.status+(text?': '+text:''));}const ct=res.headers.get('content-type')||'';return ct.includes('application/json')?res.json():null;}
   async function syncUserToCloud(nick,extraStats={}){
@@ -323,6 +324,55 @@
   }
   function syncNoteIndicators(){if(!session)return;const e=session.exam,q=e.questions[session.current],on=hasNote(e,q);const btn=$('toggleNote');if(btn){btn.classList.toggle('has-note',on);btn.classList.toggle('active',noteUi.open);btn.setAttribute('aria-expanded',String(noteUi.open));}const cell=app.querySelector(`.nav-grid [data-jump="${session.current}"]`);if(cell)cell.classList.toggle('noted',on);}
   function toggleNotePanel(force){if(!session)return;noteUi.open=typeof force==='boolean'?force:!noteUi.open;const panel=$('notePanel');if(!panel)return;panel.hidden=!noteUi.open;syncNoteIndicators();if(noteUi.open)requestAnimationFrame(()=>{const ta=$('noteInput');if(ta){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);}});}
+  async function fetchCachedAiAnswer(exam,q){
+    if(embedded)return;
+    const ref=starIdentity(exam,q),key=ref.examId+':'+ref.questionIndex;
+    if(aiAnswersCache.has(key)||aiFetchedKeys.has(key))return;
+    aiFetchedKeys.add(key);
+    try{
+      const rows=await supaFetch('/ai_answers?exam_id=eq.'+encodeURIComponent(ref.examId)+'&question_index=eq.'+Number(ref.questionIndex)+'&limit=1');
+      if(Array.isArray(rows)&&rows[0]){aiAnswersCache.set(key,{answer:rows[0].ai_answer,reason:rows[0].reason||'',confidence:rows[0].confidence||'medium',model:rows[0].model||'gemini-3-flash-preview',cached:true});if(session&&starIdentity(session.exam,session.exam.questions[session.current]).examId===ref.examId&&starIdentity(session.exam,session.exam.questions[session.current]).questionIndex===ref.questionIndex)renderSession();}
+    }catch{}
+  }
+  async function imageSrcToBase64(src){
+    const res=await fetch(src);const blob=await res.blob();
+    const dataUrl=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error('Không đọc được ảnh câu hỏi.'));r.readAsDataURL(blob);});
+    const m=String(dataUrl).match(/^data:([^;]+);base64,(.+)$/);
+    if(!m)throw Error('Không chuyển đổi được ảnh sang base64.');
+    return {mimeType:m[1],imageBase64:m[2]};
+  }
+  async function askAiCheck(exam,q,force=false){
+    if(embedded){notify('Chế độ file HTML độc lập không kết nối được AI.');return;}
+    const ref=starIdentity(exam,q),key=ref.examId+':'+ref.questionIndex;
+    if(aiLoadingKey===key)return;
+    const imgEl=$('questionImage');
+    if(!imgEl||!imgEl.src||!imgEl.complete){notify('Ảnh câu hỏi chưa tải xong, đợi một chút rồi thử lại.');return;}
+    aiLoadingKey=key;aiErrorMap.delete(key);renderSession();
+    try{
+      const {mimeType,imageBase64}=await imageSrcToBase64(imgEl.src);
+      const res=await fetch('/api/ai-check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({examId:ref.examId,questionIndex:ref.questionIndex,imageBase64,mimeType,options:q.options,currentAnswer:(q.answer||[]).join(','),force})});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok)throw Error(data.error||'Lỗi HTTP '+res.status);
+      aiAnswersCache.set(key,{answer:data.answer,reason:data.reason||'',confidence:data.confidence||'medium',model:data.model||'gemini-3-flash-preview',cached:Boolean(data.cached)});
+    }catch(err){
+      aiErrorMap.set(key,err?.message||'Không kiểm tra được bằng AI.');
+      notify(aiErrorMap.get(key));
+    }finally{
+      if(aiLoadingKey===key)aiLoadingKey=null;
+      if(session)renderSession();
+    }
+  }
+  async function applyAiAnswer(exam,q,answerStr){
+    const answer=C.letters(answerStr);if(!answer)return;
+    q.answer=answer;q.answerMethod='manual';q.community={...q.community,status:'manual',verified:false};q.manualConfirmedAt=new Date().toISOString();q.type=answer.length>1?'multi':'single';for(const a of answer)if(!q.options.includes(a))q.options.push(a);
+    exam.unknown=exam.questions.filter(x=>!x.answer).length;
+    if(!embedded){
+      const source=q.sourceExamId?exams.find(e=>e.id===q.sourceExamId):null;
+      if(source){const original=source.questions.find(x=>x.index===starIdentity(exam,q).questionIndex);if(original){Object.assign(original,{answer:q.answer,answerMethod:q.answerMethod,community:q.community,manualConfirmedAt:q.manualConfirmedAt,type:q.type,options:q.options});source.unknown=source.questions.filter(x=>!x.answer).length;await put('exams',source);}}
+      else await put('exams',exam);
+    }
+    await saveSession();renderSession();notify('Đã áp dụng đáp án AI ('+answer.join(', ')+') cho '+q.label+'.');
+  }
   function bindNotePanel(e,q){const ta=$('noteInput');if(!ta)return;const status=$('noteStatus');const autosize=()=>{ta.style.height='auto';ta.style.height=Math.min(320,Math.max(88,ta.scrollHeight))+'px';};autosize();
     const flush=()=>{clearTimeout(noteSaveTimer);noteSaveTimer=null;if(setNote(e,q,ta.value)&&status)status.textContent=noteStatusText(noteKeyOf(e,q));syncNoteIndicators();};
     ta.oninput=()=>{autosize();if(status)status.textContent='Đang lưu…';clearTimeout(noteSaveTimer);noteSaveTimer=setTimeout(flush,400);};
@@ -665,8 +715,30 @@
     $('optionCount').onchange=evt=>{const n=Number(evt.target.value);if(q.answer?.some(x=>x.charCodeAt(0)-65>=n)){notify('Không thể bỏ phương án có trong đáp án của manifest.');renderSession();return;}q.options=Array.from({length:n},(_,i)=>String.fromCharCode(65+i));s.answers[q.index]=(s.answers[q.index]||[]).filter(x=>q.options.includes(x));renderSession();};
     $('questionFilter').onchange=evt=>{s.filter=evt.target.value;const list=indices();if(!list.length){notify('Không có câu nào trong bộ lọc này.');s.filter='all';}else s.current=list[0];renderSession();saveSession().catch(()=>{});};
     if($('toggleDiscussion'))$('toggleDiscussion').onclick=()=>{$('discussion').hidden=!$('discussion').hidden;};
+    if(isReview&&!embedded){
+      fetchCachedAiAnswer(e,q);
+      if($('askAiBtn'))$('askAiBtn').onclick=()=>askAiCheck(e,q,false);
+      if($('recheckAiBtn'))$('recheckAiBtn').onclick=()=>askAiCheck(e,q,true);
+      if($('applyAiBtn'))$('applyAiBtn').onclick=()=>applyAiAnswer(e,q,$('applyAiBtn').dataset.ans);
+    }
   }
-  function feedbackHTML(q,status){const label=status==='correct'?'Chính xác. Tiếp tục nào!':status==='wrong'?'Chưa đúng — cùng xem lại.':'Câu này chưa có đáp án để chấm.';const answer=q.answer?q.answer.join(', '):'Chưa xác định';const counts=Object.entries(q.community.counts).map(([k,v])=>k+': '+v).join(' · ');return `<section class="answer-feedback ${status}"><div class="row space"><h3>${label}</h3>${!session.submitted?'<button id="resetQuestion" class="text-btn">Làm lại câu · R</button>':''}</div><p>${q.answer?'Đáp án trong dữ liệu: <strong>'+answer+'</strong>. ':''}${q.community.verified?'Đã đánh dấu xác minh trong dữ liệu.':q.answerMethod==='manual'?'Đáp án do bạn xác nhận trong thư viện.':'Tham khảo từ dữ liệu cộng đồng; chưa được xác minh.'}</p>${counts?'<p class="muted">Số người chọn: '+esc(counts)+'</p>':''}${q.explanation?'<p style="margin-top:10px">'+esc(q.explanation)+'</p>':''}<button id="toggleDiscussion" class="text-btn" style="margin-top:12px">Xem / ẩn bình luận và ảnh thảo luận</button><div id="discussion" class="comments-panel"><h4>BÌNH LUẬN TRONG DỮ LIỆU</h4>${q.comments.length?q.comments.slice(0,30).map(c=>'<div class="comment"><strong>'+esc(c.author||'Bình luận')+'</strong>'+esc(c.text)+'</div>').join(''):'<p class="small">Không có bình luận.</p>'}${q.comments.length>30?'<p class="small">Hiển thị 30/'+q.comments.length+' bình luận. Toàn bộ vẫn có trong manifest.</p>':''}${q.full?'<img id="fullReviewImage" class="full-image" alt="Ảnh ghép và bình luận gốc">':''}</div></section>`;}
+  function aiBoxHTML(e,q){
+    if(embedded)return '';
+    const ref=starIdentity(e,q),key=ref.examId+':'+ref.questionIndex;
+    const ai=aiAnswersCache.get(key),loading=aiLoadingKey===key,err=aiErrorMap.get(key);
+    if(loading)return '<div class="ai-box loading-ai"><span class="ai-badge">🤖 AI Đối chiếu</span><span>Đang đọc ảnh câu hỏi và phân tích đáp án…</span></div>';
+    if(ai){
+      const aiLetters=C.letters(ai.answer)||[];
+      const curLetters=q.answer||[];
+      const same=curLetters.length&&aiLetters.join(',')===curLetters.join(',');
+      const diff=curLetters.length&&!same;
+      const statusTag=same?'<span class="badge good">✓ Khớp đáp án đề</span>':diff?'<span class="badge warning">⚠ Khác đáp án đề!</span>':'<span class="badge">AI gợi ý</span>';
+      const confMap={high:'Tin cậy cao',medium:'Trung bình',low:'Tham khảo'};
+      return `<div class="ai-box ${diff?'ai-diff':same?'ai-match':''}"><div class="ai-head"><div class="row"><span class="ai-badge">🤖 AI (${esc(ai.model||'Gemini')})</span>${statusTag}<span class="small muted">${confMap[ai.confidence]||''}</span></div><div class="row"><button id="recheckAiBtn" type="button" class="text-btn">Kiểm tra lại</button>${(!curLetters.length||diff)?`<button id="applyAiBtn" type="button" class="text-btn ai-apply" data-ans="${esc(ai.answer)}">Áp dụng đáp án ${esc(ai.answer)}</button>`:''}</div></div><p class="ai-answer-line">AI chọn: <strong>${esc(ai.answer)}</strong></p>${ai.reason?`<p class="ai-reason">${esc(ai.reason)}</p>`:''}</div>`;
+    }
+    return `<div class="ai-bar"><button id="askAiBtn" type="button" class="ai-trigger">🤖 Hỏi AI kiểm tra câu này</button>${err?`<span class="small ai-err">${esc(err)}</span>`:''}</div>`;
+  }
+  function feedbackHTML(q,status){const label=status==='correct'?'Chính xác. Tiếp tục nào!':status==='wrong'?'Chưa đúng — cùng xem lại.':'Câu này chưa có đáp án để chấm.';const answer=q.answer?q.answer.join(', '):'Chưa xác định';const counts=Object.entries(q.community.counts).map(([k,v])=>k+': '+v).join(' · ');return `<section class="answer-feedback ${status}"><div class="row space"><h3>${label}</h3>${!session.submitted?'<button id="resetQuestion" class="text-btn">Làm lại câu · R</button>':''}</div><p>${q.answer?'Đáp án trong dữ liệu: <strong>'+answer+'</strong>. ':''}${q.community.verified?'Đã đánh dấu xác minh trong dữ liệu.':q.answerMethod==='manual'?'Đáp án do bạn xác nhận trong thư viện.':'Tham khảo từ dữ liệu cộng đồng; chưa được xác minh.'}</p>${counts?'<p class="muted">Số người chọn: '+esc(counts)+'</p>':''}${q.explanation?'<p style="margin-top:10px">'+esc(q.explanation)+'</p>':''}${aiBoxHTML(session.exam,q)}<button id="toggleDiscussion" class="text-btn" style="margin-top:12px">Xem / ẩn bình luận và ảnh thảo luận</button><div id="discussion" class="comments-panel"><h4>BÌNH LUẬN TRONG DỮ LIỆU</h4>${q.comments.length?q.comments.slice(0,30).map(c=>'<div class="comment"><strong>'+esc(c.author||'Bình luận')+'</strong>'+esc(c.text)+'</div>').join(''):'<p class="small">Không có bình luận.</p>'}${q.comments.length>30?'<p class="small">Hiển thị 30/'+q.comments.length+' bình luận. Toàn bộ vẫn có trong manifest.</p>':''}${q.full?'<img id="fullReviewImage" class="full-image" alt="Ảnh ghép và bình luận gốc">':''}</div></section>`;}
   function editAnswer(){
     if(!session||session.mode!=='practice'||session.submitted)return;
     const q=session.exam.questions[session.current];clearTimeout(autoTimer);
