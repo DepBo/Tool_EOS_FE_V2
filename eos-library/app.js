@@ -420,22 +420,28 @@
     const fh=await cur.getFileHandle(parts[parts.length-1]);
     return fh.getFile();
   }
+  function withTimeout(promise,ms=2000,fallback=null){return Promise.race([Promise.resolve(promise).catch(()=>fallback),new Promise(r=>setTimeout(()=>r(fallback),ms))]);}
   async function getPendingRoots(){
     const pending=[];
     for(const item of rootHandles.values()){
-      try{if(await item.handle.queryPermission({mode:'read'})!=='granted')pending.push(item);}catch{}
+      const state=await withTimeout(item.handle.queryPermission({mode:'read'}),1500,'timeout');
+      if(state!=='granted')pending.push({...item,timedOut:state==='timeout'});
     }
     return pending;
   }
   async function grantAllRoots(){
-    let grantedAny=false;
+    let grantedAny=false,timedOut=false;
     for(const item of rootHandles.values()){
-      try{
-        if(await item.handle.queryPermission({mode:'read'})==='granted'){grantedAny=true;continue;}
-        if(await item.handle.requestPermission({mode:'read'})==='granted')grantedAny=true;
-      }catch{}
+      const cur=await withTimeout(item.handle.queryPermission({mode:'read'}),1500,'timeout');
+      if(cur==='granted'){grantedAny=true;continue;}
+      if(cur==='timeout'){timedOut=true;continue;}
+      const req=await withTimeout(item.handle.requestPermission({mode:'read'}),8000,'timeout');
+      if(req==='granted')grantedAny=true;
+      else if(req==='timeout')timedOut=true;
     }
-    if(grantedAny){urls.clear();if(session)renderSession();else if(view==='library')renderLibrary();}
+    if(grantedAny){urls.clear();if(session)renderSession();else if(view==='library')renderLibrary();notify('Đã mở lại quyền đọc thư mục!');}
+    else if(timedOut)notify('Trình duyệt đang kẹt File System Handle cũ. Hãy bấm "+ Thêm đề" → chọn cách ổn định (lưu vào trình duyệt) để khôi phục ảnh.');
+    else notify('Chưa được cấp quyền đọc thư mục. Bạn có thể bấm "+ Thêm đề" để nhập lại bằng chế độ ổn định.');
   }
   async function getImageBlob(exam,path,q=null){
     if(!path)return null;
@@ -446,11 +452,11 @@
     if(mode==='fs'&&rootId){
       const entry=rootHandles.get(rootId);
       if(entry?.handle){
-        try{
-          if(await entry.handle.queryPermission({mode:'read'})==='granted'){
-            return await readFileFromRoot(entry.handle,relFolder,path);
-          }
-        }catch{}
+        const perm=await withTimeout(entry.handle.queryPermission({mode:'read'}),1200,'timeout');
+        if(perm==='granted'){
+          const file=await withTimeout(readFileFromRoot(entry.handle,relFolder,path),3000,null);
+          if(file)return file;
+        }
       }
     }
     const stored=await get('assets',srcId+':'+path);
@@ -555,7 +561,7 @@
     app.innerHTML=shell(heading+hero+'<div id="permBannerMount"></div>'+statsHtml(list)+starredHtml+resumeHtml+`<div class="toolbar"><h3 style="font-size:15px;margin:0">${subject?'Danh sách đề thi':'Môn học của bạn'}</h3><div class="row"><div class="search-wrap">${icon('search')}<input id="search" placeholder="Tìm môn, tên đề, năm…" value="${esc(search)}" aria-label="Tìm môn hoặc đề"></div>${statusSelect}<button id="rescan" class="btn-icon small">${icon('refresh')}Quét lại</button></div></div>`+body);
     bindShell();bind('backSubjects',()=>{subject=null;search='';libraryStatus='all';renderLibrary();});bind('emptyAdd',showImport);bind('createRandomExam',()=>createRandomExam(subject));bind('openStarExam',()=>showStarExam(subject));bind('openStudiedStat',()=>{studiedFilter={status:'studied',subject:subject||'',search:''};subject=null;renderStudied();});
     app.querySelectorAll('[data-resume-exam]').forEach(b=>b.onclick=()=>{const ex=exams.find(x=>x.id===b.dataset.resumeExam);if(ex)startSession(ex,b.dataset.resumeMode,false,true);});
-    getPendingRoots().then(pending=>{if(token!==renderToken||!pending.length)return;const m=$('permBannerMount');if(!m)return;m.innerHTML=`<div class="perm-banner"><div><strong>🔒 Cần xác nhận quyền đọc thư mục đề</strong><p class="small muted" style="margin:2px 0 0">Trình duyệt tạm khóa quyền đọc ổ đĩa (${pending.map(p=>esc(p.name||p.handle?.name||'Thư mục')).join(', ')}) sau khi mở lại trang. Bấm 1 lần để hiển thị lại toàn bộ ảnh.</p></div><button id="grantRootsBtn" class="primary">🔓 Mở quyền đọc thư mục</button></div>`;bind('grantRootsBtn',grantAllRoots);});
+    getPendingRoots().then(pending=>{if(token!==renderToken||!pending.length)return;const m=$('permBannerMount');if(!m)return;const stuck=pending.some(p=>p.timedOut);m.innerHTML=`<div class="perm-banner"><div><strong>${stuck?'⚠ Trình duyệt đang kẹt quyền đọc thư mục Zero-Copy':'🔒 Cần xác nhận quyền đọc thư mục đề'}</strong><p class="small muted" style="margin:2px 0 0">${stuck?'Chrome đang treo quyền đọc thư mục cũ sau khi khởi động lại. Bấm "Nhập lại ổn định" để lưu ảnh trực tiếp vào trình duyệt (không bị mất ảnh lần sau).':'Trình duyệt tạm khóa quyền đọc ổ đĩa ('+pending.map(p=>esc(p.name||p.handle?.name||'Thư mục')).join(', ')+') sau khi mở lại trang. Bấm 1 lần để hiển thị lại toàn bộ ảnh.'}</p></div><div class="row">${stuck?'':'<button id="grantRootsBtn" class="primary">🔓 Mở quyền đọc thư mục</button>'}<button id="reimportStableBtn" class="${stuck?'primary':''}">📥 Nhập lại ổn định</button></div></div>`;if($('grantRootsBtn'))bind('grantRootsBtn',grantAllRoots);bind('reimportStableBtn',()=>{$('folderInput').click();});});
     if($('libraryStatus')){$('libraryStatus').value=libraryStatus;$('libraryStatus').onchange=e=>{libraryStatus=e.target.value;renderLibrary();};}
     $('search').oninput=e=>{const pos=e.target.selectionStart;search=e.target.value;renderLibrary();$('search').focus();$('search').setSelectionRange(pos,pos);};
     app.querySelectorAll('[data-subject]').forEach(b=>b.onclick=()=>{subject=b.dataset.subject;search='';libraryStatus='all';renderLibrary();});
@@ -563,32 +569,35 @@
     app.querySelectorAll('img[data-preview]').forEach(img=>{const exam=exams.find(e=>e.id===img.dataset.preview);const firstQ=exam?.questions?.[0];if(firstQ)mountImage(img,exam,firstQ.image,token,null,firstQ);});
   }
   function examCard(e){const info=examStudyInfo(e),statusBadge=info.status==='done'?`<span class="badge done">✓ Đã học (${info.attempts.length} lượt)</span>`:info.status==='progress'?'<span class="badge progress">Đang làm dở</span>':'<span class="badge fresh">Chưa học</span>';const modeBadge=info.modes.length?`<span class="badge">${info.modes.map(modeLabel).join(' + ')}</span>`:'<span class="badge good">Luyện tập + EOS</span>';const summaryText=info.status==='done'?'Lần gần nhất: '+(info.last.score===null?'Chưa chấm':info.last.score+'/10')+' ('+modeLabel(info.last.mode)+')'+(info.last.createdAt?' · '+new Date(info.last.createdAt).toLocaleDateString('vi-VN'):'')+(info.active.length?' · Đang làm tiếp':''):info.status==='progress'?'Đang làm dở: '+info.active.map(s=>modeLabel(s.mode)+' '+Object.keys(s.answers||{}).length+'/'+e.questions.length+' câu').join(' · '):'Chưa có lượt học nào';const btnText=info.status==='progress'?'Tiếp tục học':info.status==='done'?'Xem / học lại':'Mở bộ đề';return `<article class="exam-card ${info.status==='done'?'studied':info.status==='progress'?'in-progress':''}"><div class="thumb"><img data-preview="${esc(e.id)}" alt="Xem trước ${esc(e.questions[0].label)}" loading="lazy"><span class="badge">${e.questions.length} câu</span></div><div class="exam-body"><div class="row">${statusBadge}${modeBadge}${e.unknown?'<span class="badge warning">'+e.unknown+' câu chưa rõ</span>':''}</div><h3>${esc(e.title)}</h3><p>${e.missing?'Thiếu '+e.missing+' ảnh · ':''}${summaryText}</p><div class="exam-actions"><button class="primary" data-exam="${esc(e.id)}">${btnText} ${icon('arrow')}</button></div></div></article>`;}
-  function showImport(){if(importing)return;openModal(`<span class="eyebrow">THÊM VÀO THƯ VIỆN</span><h2>Đưa bộ đề của bạn vào đây.</h2><p>Chọn một đề hoặc thư mục cha chứa nhiều đề / nhiều môn (hỗ trợ thêm nhiều thư mục từ bất kỳ ổ nào). Trang tự tìm manifest, bỏ qua đề trùng và cập nhật đề đã thay đổi.</p><div class="file-note">Cần giữ nguyên thư mục ảnh và <strong>manifest.json</strong>. Khi chọn bằng nút chính, ảnh sẽ được đọc trực tiếp từ máy (Zero-Copy) giúp bộ nhớ trình duyệt siêu nhẹ và không bị xóa mất đề.</div><div class="stack" style="margin-top:24px"><button id="pickRoot" class="primary btn-icon">${icon('folder')}Chọn thư mục (Zero-Copy khuyên dùng)</button><button id="pickFallback" class="btn-icon">${icon('plus')}Chọn bằng hộp chọn cổ điển (copy ảnh)</button></div><p class="small" style="margin-top:15px">Chế độ Zero-Copy chỉ lưu thông tin nhẹ và đọc ảnh trực tiếp từ thư mục gốc trên máy bạn.</p><div class="modal-actions"><button id="closeImport">Đóng</button></div>`);bind('pickRoot',pickRoot);bind('pickFallback',()=>{$('folderInput').click();});bind('closeImport',closeModal);}
+  function showImport(){if(importing)return;openModal(`<span class="eyebrow">THÊM VÀO THƯ VIỆN</span><h2>Đưa bộ đề của bạn vào đây.</h2><p>Chọn một đề hoặc thư mục cha chứa nhiều đề / nhiều môn (hỗ trợ thêm nhiều thư mục từ bất kỳ ổ nào). Trang tự tìm manifest, bỏ qua đề trùng và cập nhật đề đã thay đổi.</p><div class="file-note">Khuyên dùng nút chính để <strong>lưu ảnh ổn định vào trình duyệt</strong>: mở lại Chrome hay đổi cài đặt hệ thống cũng không bị mất quyền đọc ảnh hoặc treo nút học.</div><div class="stack" style="margin-top:24px"><button id="pickFallback" class="primary btn-icon">${icon('folder')}Chọn thư mục đề (Ổn định · khuyên dùng)</button><button id="pickRoot" class="btn-icon">${icon('plus')}Chọn thư mục Zero-Copy (đọc trực tiếp ổ đĩa)</button></div><p class="small" style="margin-top:15px">Chế độ Zero-Copy chỉ nên dùng khi thư viện rất lớn và trình duyệt hỗ trợ tốt File System Access API.</p><div class="modal-actions"><button id="closeImport">Đóng</button></div>`);bind('pickFallback',()=>{$('folderInput').click();});bind('pickRoot',pickRoot);bind('closeImport',closeModal);}
   async function collect(handle,prefix='',result=[]){for await(const entry of handle.values()){if(entry.kind==='directory'){if(!['.git','node_modules','.venv'].includes(entry.name))await collect(entry,prefix+entry.name+'/',result);}else result.push({path:C.norm(prefix+entry.name),file:await entry.getFile()});}return result;}
   async function pickRoot(){
     if(!window.showDirectoryPicker){$('folderInput').click();return;}
     try{
       const handle=await showDirectoryPicker({mode:'read'});
       let rootId=null;
-      for(const [id,item] of rootHandles){try{if(await item.handle.isSameEntry(handle)){rootId=id;break;}}catch{}}
+      for(const [id,item] of rootHandles){if(await withTimeout(item.handle.isSameEntry(handle),1200,false)){rootId=id;break;}}
       if(!rootId){rootId='root:'+crypto.randomUUID();const rec={id:rootId,name:handle.name,handle};rootHandles.set(rootId,rec);try{await put('handles',rec);}catch{}}
       rememberedRoot=handle;
       const prefix=handle.name+'/';
       await importFiles(await collect(handle,prefix),rootId,prefix);
-    }catch(e){if(e.name!=='AbortError')notify(e.message);}
+    }catch(e){if(e.name!=='AbortError')notify('Zero-Copy lỗi ('+e.message+'). Hãy dùng nút "Chọn thư mục đề (Ổn định)".');}
   }
   async function scanAgain(){
     if(importing)return;
     if(!rootHandles.size&&!rememberedRoot){showImport();return;}
     try{
       const targets=rootHandles.size?[...rootHandles.entries()]:[['root',{id:'root',name:rememberedRoot.name,handle:rememberedRoot}]];
+      let scanned=0;
       for(const [id,item] of targets){
-        let granted=await item.handle.queryPermission({mode:'read'});
-        if(granted!=='granted')granted=await item.handle.requestPermission({mode:'read'});
+        let granted=await withTimeout(item.handle.queryPermission({mode:'read'}),1500,'timeout');
+        if(granted==='prompt')granted=await withTimeout(item.handle.requestPermission({mode:'read'}),8000,'timeout');
         if(granted!=='granted')continue;
         const prefix=item.handle.name+'/';
         await importFiles(await collect(item.handle,prefix),id,prefix);
+        scanned++;
       }
+      if(!scanned){notify('Trình duyệt đang khóa quyền đọc thư mục cũ. Hãy chọn lại thư mục bằng chế độ Ổn định.');showImport();}
     }catch(e){notify('Không mở lại được thư mục. Chọn lại trong Thêm đề. '+e.message);}
   }
   $('folderInput').onchange=async e=>{const files=[...e.target.files].map(file=>({file,path:C.norm(file.webkitRelativePath||file.name)}));e.target.value='';if(files.length)await importFiles(files,null,'');};
@@ -656,16 +665,26 @@
   function sessionOrder(s){const n=s?.exam?.questions?.length||0;return Array.isArray(s?.order)&&s.order.length===n?s.order:Array.from({length:n},(_,i)=>i);}
   async function saveSession(){if(!session||embedded||!db)return;const saved={...session,exam:undefined,id:sessionKey(),examFingerprint:session.exam.fingerprint,elapsedBase:elapsed(),resumedAt:0,running:false,updatedAt:Date.now()};const idx=sessions.findIndex(x=>x.id===saved.id);if(idx>=0)sessions[idx]=saved;else sessions.push(saved);await put('sessions',saved);}
   async function startSession(exam,mode,fresh=false,autoResume=false,initialIndex=null,shuffle=false){
-    const rootIds=new Set();
-    if(exam?.storageMode==='fs'&&exam.rootId)rootIds.add(exam.rootId);
-    if(exam?.isRandom||exam?.isStarred)for(const q of exam.questions||[])if(q.sourceStorageMode==='fs'&&q.sourceRootId)rootIds.add(q.sourceRootId);
-    for(const rid of rootIds){const item=rootHandles.get(rid);if(item?.handle){try{if(await item.handle.queryPermission({mode:'read'})!=='granted')await item.handle.requestPermission({mode:'read'});}catch{}}}
-    const saved=!fresh&&!embedded?await get('sessions',exam.id+':'+mode):null;
-    if(saved&&saved.examFingerprint===exam.fingerprint&&!saved.submitted&&(Object.keys(saved.answers).length||saved.elapsedBase)){
-      if(autoResume){launch(saved);return;}
-      openModal(`<h2>Tiếp tục lượt đang học?</h2><p>${esc(exam.title)} · ${mode==='eos'?'EOS':'Luyện tập'}${saved.shuffled?' · Đảo câu hỏi':''}<br>Đã chọn ${Object.keys(saved.answers).length}/${exam.questions.length} câu · ${time(saved.elapsedBase)}</p><div class="modal-actions"><button id="restartSaved">Làm lượt mới</button><button class="primary" id="resumeSaved">Tiếp tục</button></div>`);bind('restartSaved',()=>launch(null));bind('resumeSaved',()=>launch(saved));
-    }else launch(null);
-    function launch(previous){closeModal();clearTimeout(autoTimer);clearInterval(timer);questionTimerKey=null;questionReadyAt=null;navLockUntil=0;lastSpeedResult=null;const useShuffle=!previous&&mode==='practice'&&Boolean(shuffle)&&exam.questions.length>1;const order=useShuffle?shuffledOrder(exam.questions.length):null;session=previous?{...previous,exam,order:previous.order||null,shuffled:Boolean(previous.shuffled),current:initialIndex??previous.current,resumedAt:Date.now(),running:true,filter:'all',streak:previous.streak||0,maxStreak:previous.maxStreak||0}:{exam,mode,order,shuffled:useShuffle,answers:{},checked:{},current:initialIndex??(order?order[0]:0),filter:'all',submitted:false,elapsedBase:0,resumedAt:Date.now(),running:true,recorded:false,zoom:false,streak:0,maxStreak:0};renderSession();timer=setInterval(()=>{if($('clock'))$('clock').textContent=time(elapsed());},1000);}
+    try{
+      const rootIds=new Set();
+      if(exam?.storageMode==='fs'&&exam.rootId)rootIds.add(exam.rootId);
+      if(exam?.isRandom||exam?.isStarred)for(const q of exam.questions||[])if(q.sourceStorageMode==='fs'&&q.sourceRootId)rootIds.add(q.sourceRootId);
+      if(rootIds.size){
+        closeModal();
+        for(const rid of rootIds){
+          const item=rootHandles.get(rid);
+          if(!item?.handle)continue;
+          const perm=await withTimeout(item.handle.queryPermission({mode:'read'}),1200,'timeout');
+          if(perm==='prompt'){await withTimeout(item.handle.requestPermission({mode:'read'}),6000,'timeout');}
+        }
+      }
+      const saved=!fresh&&!embedded?await get('sessions',exam.id+':'+mode):null;
+      if(saved&&saved.examFingerprint===exam.fingerprint&&!saved.submitted&&(Object.keys(saved.answers).length||saved.elapsedBase)){
+        if(autoResume){launch(saved);return;}
+        openModal(`<h2>Tiếp tục lượt đang học?</h2><p>${esc(exam.title)} · ${mode==='eos'?'EOS':'Luyện tập'}${saved.shuffled?' · Đảo câu hỏi':''}<br>Đã chọn ${Object.keys(saved.answers).length}/${exam.questions.length} câu · ${time(saved.elapsedBase)}</p><div class="modal-actions"><button id="restartSaved">Làm lượt mới</button><button class="primary" id="resumeSaved">Tiếp tục</button></div>`);bind('restartSaved',()=>launch(null));bind('resumeSaved',()=>launch(saved));
+      }else launch(null);
+      function launch(previous){closeModal();clearTimeout(autoTimer);clearInterval(timer);questionTimerKey=null;questionReadyAt=null;navLockUntil=0;lastSpeedResult=null;const useShuffle=!previous&&mode==='practice'&&Boolean(shuffle)&&exam.questions.length>1;const order=useShuffle?shuffledOrder(exam.questions.length):null;session=previous?{...previous,exam,order:previous.order||null,shuffled:Boolean(previous.shuffled),current:initialIndex??previous.current,resumedAt:Date.now(),running:true,filter:'all',streak:previous.streak||0,maxStreak:previous.maxStreak||0}:{exam,mode,order,shuffled:useShuffle,answers:{},checked:{},current:initialIndex??(order?order[0]:0),filter:'all',submitted:false,elapsedBase:0,resumedAt:Date.now(),running:true,recorded:false,zoom:false,streak:0,maxStreak:0};renderSession();timer=setInterval(()=>{if($('clock'))$('clock').textContent=time(elapsed());},1000);}
+    }catch(err){notify('Không mở được bài: '+(err?.message||err));}
   }
   function indices(){if(!session)return [];return sessionOrder(session).filter(i=>{const q=session.exam.questions[i];if(session.filter==='all')return true;if(session.filter==='starred')return hasStar(session.exam,q);const checked=session.submitted||session.checked[q.index];if(session.filter==='wrong')return checked&&C.grade(q,session.answers[q.index])==='wrong';if(session.filter==='unknown')return !q.answer;return !(session.answers[q.index]?.length);});}
   function feedbackVisible(q){return session.submitted||session.mode==='practice'&&session.checked[q.index];}
