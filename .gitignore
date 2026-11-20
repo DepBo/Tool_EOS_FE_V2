@@ -1,0 +1,14 @@
+# Environment variables & secrets (never commit API keys)
+.env
+.env.*
+!.env.example
+
+# Vercel & build artifacts
+.vercel
+eos-library/.vercel
+node_modules/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.log
