@@ -59,7 +59,7 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_API_KE;
   if (!apiKey) {
     return res.status(503).json({
       error: 'Chưa cấu hình GEMINI_API_KEY trong Environment Variables của Vercel.'
