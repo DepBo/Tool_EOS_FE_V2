@@ -112,36 +112,54 @@ module.exports = async function handler(req, res) {
     'Lưu ý: Chỉ chọn các chữ cái nằm trong danh sách: ' + options.join(', ') + '.'
   ].join('\n');
 
-  const model = DEFAULT_MODEL;
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const modelCandidates = [...new Set([
+    process.env.GEMINI_MODEL || DEFAULT_MODEL,
+    'gemini-3-flash-preview',
+    'gemini-3.5-flash-lite'
+  ].filter(Boolean))];
+
+  const requestBody = JSON.stringify({
+    contents: [
+      {
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType, data: imageBase64 } }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      responseMimeType: 'application/json'
+    }
+  });
 
   try {
-    const gemRes = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType, data: imageBase64 } }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: 'application/json'
-        }
-      }),
-      signal: AbortSignal.timeout(25000)
-    });
+    let model = modelCandidates[0];
+    let gemRes = null;
+    let lastErrStatus = 502;
+    let lastErrText = '';
 
-    if (!gemRes.ok) {
-      const errText = await gemRes.text().catch(() => '');
-      return res.status(gemRes.status === 429 ? 429 : 502).json({
-        error: gemRes.status === 429
-          ? 'AI đang chạm giới hạn lượt gọi miễn phí (RPM). Đợi vài giây rồi bấm thử lại nhé.'
-          : `Gemini API lỗi HTTP ${gemRes.status}${errText ? ': ' + errText.slice(0, 200) : ''}`
+    for (const candidate of modelCandidates) {
+      model = candidate;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidate)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      gemRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+        signal: AbortSignal.timeout(25000)
+      });
+      if (gemRes.ok) break;
+      lastErrStatus = gemRes.status;
+      lastErrText = await gemRes.text().catch(() => '');
+      // Fallback to next model on rate-limit (429), model unavailable (404), or overload (503)
+      if (![429, 404, 503].includes(gemRes.status)) break;
+    }
+
+    if (!gemRes || !gemRes.ok) {
+      return res.status(lastErrStatus === 429 ? 429 : 502).json({
+        error: lastErrStatus === 429
+          ? 'Các model AI đều đang chạm giới hạn lượt gọi miễn phí. Đợi một chút rồi bấm thử lại nhé.'
+          : `Gemini API lỗi HTTP ${lastErrStatus}${lastErrText ? ': ' + lastErrText.slice(0, 200) : ''}`
       });
     }
 
