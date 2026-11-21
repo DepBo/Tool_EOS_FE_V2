@@ -794,7 +794,8 @@
     navLockUntil=now+450;
     clearTimeout(autoTimer);
     session.checked[q.index]=true;
-    const isCorrect=C.grade(q,session.answers[q.index])==='correct';
+    const result=C.grade(q,session.answers[q.index]);
+    const isCorrect=result==='correct';
     if(isCorrect){
       session.streak=(session.streak||0)+1;
       session.maxStreak=Math.max(session.maxStreak||0,session.streak);
@@ -804,7 +805,7 @@
         lastSpeedResult={key:session.exam.id+':'+q.index,ms:answerMs};
         if(nickname()!=='Người học')saveQuestionSpeed(session.exam.id,q.index,nickname(),answerMs);
       }
-    }else{
+    }else if(result==='wrong'){
       if(session.streak>=2)showStreakLostAnimation(session.streak);
       session.streak=0;
     }
