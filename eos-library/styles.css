@@ -303,3 +303,9 @@ html[data-theme="dark"] .ai-box.ai-diff{background:#292214;border-color:#6b5222}
 html[data-theme="dark"] .ai-box.ai-match{background:#12271b;border-color:#26593b}
 html[data-theme="dark"] .ai-badge{color:#8cc0fa}
 html[data-theme="dark"] .ai-err{color:#ff9b90}
+
+.exam-random-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:rgba(16,81,62,.04);cursor:pointer;user-select:none;transition:border-color .15s,background .15s}
+.exam-random-toggle:hover{border-color:#9fc2ad}
+.exam-random-toggle .mode-switch{padding:0;margin:0}
+html[data-theme="dark"] .exam-random-toggle{background:rgba(255,255,255,.03)}
+html[data-theme="dark"] .exam-random-toggle:hover{border-color:#3a594b}
